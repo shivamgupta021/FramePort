@@ -92,6 +92,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     _renderQueue=dispatch_queue_create("local.frameport.presentation",
         dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_USER_INTERACTIVE,0));
     _generationEnabled=YES;
+    _pictureOptions=FPDetailPictureOptions();
     _lastRead=CACurrentMediaTime();
     return self;
 }
@@ -227,7 +228,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     id<MTLCommandBuffer> command=[_queue commandBuffer];
     if (!drawable || !command) { @synchronized(self) { _previewDrops++; } return; }
     CGRect output=CGRectMake(0,0,drawable.texture.width,drawable.texture.height);
-    CIImage *image=[_picture imageForFrame:slot.frame size:output.size];
+    CIImage *image=[_picture imageForFrame:slot.frame size:output.size options:self.pictureOptions];
     [_context render:image toMTLTexture:drawable.texture commandBuffer:command bounds:output colorSpace:_colorSpace];
     [command addCompletedHandler:^(id<MTLCommandBuffer> done) {
         (void)slot.frame;

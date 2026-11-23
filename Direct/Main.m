@@ -3,6 +3,7 @@
 #import <CoreImage/CoreImage.h>
 #import "PreviewRecording.h"
 #import "MeasuredPreview.h"
+#import "PlaybackSettings.h"
 
 @interface CardView : NSView
 @property(nonatomic, strong) MeasuredPreview *preview;
@@ -56,6 +57,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
 @property(nonatomic, strong) NSArray<NSTextField *> *values;
 @property(nonatomic, strong) NSArray<NSTextField *> *details;
 @property(nonatomic, strong) NSButton *generationButton;
+@property(nonatomic, strong) PlaybackSettings *settings;
 @property(nonatomic, strong) NSMenuItem *generationItem;
 @property(nonatomic, strong) NSStackView *metricsBar;
 @property(nonatomic, strong) NSMenuItem *metricsItem;
@@ -79,9 +81,12 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     self.recordingDirectory = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory
         inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"FramePort Recordings" isDirectory:YES];
     self.recorder = [PreviewRecording new];
+    self.settings = [[PlaybackSettings alloc] initWithDefaults:NSUserDefaults.standardUserDefaults];
     NSMenu *bar = [NSMenu new], *app = [NSMenu new];
     [bar addItem:[NSMenuItem new]];
     [bar setSubmenu:app forItem:bar.itemArray.firstObject];
+    [[app addItemWithTitle:@"Settings…" action:@selector(showWindow:) keyEquivalent:@","] setTarget:self.settings];
+    [app addItem:[NSMenuItem separatorItem]];
     [[app addItemWithTitle:@"Record 10 Seconds of Preview" action:@selector(record:) keyEquivalent:@"r"] setTarget:self];
     [[app addItemWithTitle:@"Show Recordings" action:@selector(showRecordings:) keyEquivalent:@""] setTarget:self];
     [app addItem:[NSMenuItem separatorItem]];
@@ -142,7 +147,10 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     [self installDashboard];
     self.view.preview = [MeasuredPreview new];
     if (!self.view.preview) { [self report:@"A Metal device is required for the measured preview."]; return; }
-    [self.view.layer addSublayer:self.view.preview.layer];
+    self.view.preview.pictureOptions = self.settings.pictureOptions;
+    MeasuredPreview *preview = self.view.preview;
+    self.settings.pictureDidChange = ^(FPPictureOptions options) { preview.pictureOptions = options; };
+    [self.view.layer addSublayer:preview.layer];
     [self.window zoom:nil];
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
@@ -345,7 +353,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         self.view.needsLayout = YES;
         [self.view layoutSubtreeIfNeeded];
         self.view.preview.visible = (self.window.occlusionState & NSWindowOcclusionStateVisible) != 0;
-        if (!(self.window.styleMask & NSWindowStyleMaskFullScreen)) [self.window toggleFullScreen:nil];
+        if (self.settings.startsFullScreen && !(self.window.styleMask & NSWindowStyleMaskFullScreen)) [self.window toggleFullScreen:nil];
         NSLog(@"%@ on %@, capture %.2f Hz, presentation %@, preview in backing pixels %@",
             card.localizedName, self.window.screen.localizedName, 1 / CMTimeGetSeconds(card.activeVideoMinFrameDuration),
             NSStringFromSize(presentation), NSStringFromRect([self.view convertRectToBacking:self.view.preview.layer.frame]));
