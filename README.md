@@ -48,3 +48,9 @@ Run `./scripts/package-dmg.sh alpha.1` for a local ad-hoc build. The script buil
 Open **FramePort → Settings…** with **⌘,**. Choose Lanczos or bilinear enlargement, and off, mild or strong luminance sharpening. Picture settings apply to original and generated frames as you change them. Original-size playback uses the captured pixels. The defaults are Lanczos and mild sharpening. The **Start in full screen** preference applies the next time the capture starts. Preferences are stored on the Mac.
 
 Run `./scripts/check-settings.sh` to exercise the panel controls, preference restoration and all six rendered filter/sharpening combinations with a synthetic input.
+
+### Reading the latency breakdown
+
+**⌘I** shows three means for presented source pictures. **Input** runs from the capture timestamp to the app's callback. **App** runs from that callback to submission for presentation, including processing and scheduling. **Display** runs from submission to Metal-confirmed presentation. The three values add up to the source-picture mean. The larger headline also includes generated and held pictures, whose timestamps sit between inputs. The display interval excludes the panel's physical response.
+
+Run `cc Tests/PresentationTimingCheck.c -o build/check-timing && ./build/check-timing` after building the app to verify the stage arithmetic.

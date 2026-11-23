@@ -40,7 +40,7 @@ static SceneChange comparePictures(CVPixelBufferRef a, CVPixelBufferRef b) {
 @interface PreviewSlot : NSObject
 @property(nonatomic,strong) FPFrame *frame;
 @property(nonatomic) double capture, delivery, releaseTime;
-@property(nonatomic) BOOL generated;
+@property(nonatomic) BOOL generated, originalSample;
 @end
 @implementation PreviewSlot
 @end
@@ -68,6 +68,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     CGSize _inputSize;
     NSUInteger _received, _presented, _generatedPresented, _changes, _timed, _captureDrops, _previewDrops;
     NSUInteger _intervals[1002];
+    FPSourceTiming _sourceTiming;
     double _captureDelay, _deliveryDelay, _lastRead, _lastPresented;
     // The serial capture queue owns the interpolator and reference history.
     PlaybackPicture *_picture;
@@ -152,6 +153,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     FPFrame *input=[_picture frameFromSample:sample];
     pixels=input.pixels;
     PreviewSlot *real=slotFor(input,captureTime,deliveryTime,NO);
+    real.originalSample=YES;
     if (!enabled || !_engine || self.generationError) {
         [self publish:@[real] epoch:epoch]; return;
     }
@@ -234,6 +236,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
         (void)slot.frame;
         if (done.status==MTLCommandBufferStatusError) NSLog(@"Preview render failed: %@",done.error);
     }];
+    double submitted=CACurrentMediaTime();
     [drawable addPresentedHandler:^(id<MTLDrawable> frame) {
         double shown=frame.presentedTime;
         @synchronized(self) {
@@ -241,6 +244,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
             if (shown<=0) { self->_previewDrops++; return; }
             self->_presented++; self->_generatedPresented+=slot.generated;
             self->_deliveryDelay+=shown-slot.delivery;
+            if (slot.originalSample) FPRecordSourceTiming(&self->_sourceTiming,slot.capture,slot.delivery,submitted,shown);
             if (isfinite(slot.capture) && slot.capture<=shown) {
                 self->_timed++; self->_captureDelay+=shown-slot.capture;
             }
@@ -267,8 +271,9 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
             .generatedFPS=_generatedPresented/dt, .changeFPS=_changes/dt, .intervalP95MS=p95,
             .captureToPresentMS=_timed ? _captureDelay*1000/_timed : NAN,
             .deliveryToPresentMS=_presented ? _deliveryDelay*1000/_presented : NAN,
-            .captureDrops=_captureDrops,.previewDrops=_previewDrops };
+            .captureDrops=_captureDrops,.previewDrops=_previewDrops, .realFrameMS=FPSourceTimingMeanMS(_sourceTiming) };
         _lastRead=now; _received=_presented=_generatedPresented=_changes=_timed=0;
+        _sourceTiming=(FPSourceTiming){0};
         _captureDelay=_deliveryDelay=0; memset(_intervals,0,sizeof(_intervals));
         return result;
     }
