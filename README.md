@@ -60,3 +60,5 @@ Run `cc Tests/PresentationTimingCheck.c -o build/check-timing && ./build/check-t
 **Settings → Frame interpolation** switches the active engine during playback. **Detail (Apple + Metal)** is the default. It uses Apple's temporal model and reconstructs 1080p detail. **Fast Metal (experimental)** uses the project's full-resolution motion estimator. It spends less time generating a synthetic midpoint on the tested M4 Pro. Complex camera turns, thin geometry and HUD text can break up. Use the same moving scene, display mode and scaling settings when comparing actual presentation delay in the overlay.
 
 In a local replay of 72 held-out gameplay pictures on an M4 Pro, mean generation time was 11.72 ms for Detail and 5.44 ms for Fast Metal. Mean absolute luma error at reference edges rose from 17.22 to 25.19 on an 8-bit scale. The test synthesized a withheld picture between two recorded neighbors. It measures reconstruction cost and error, not capture-to-screen delay.
+
+[Comparison with Meyra](docs/meyra-comparison.md) covers the original Reddit feedback, the two renderers and the next capture, latency and HUD experiments.
