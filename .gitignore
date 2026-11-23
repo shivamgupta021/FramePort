@@ -1,0 +1,10 @@
+.DS_Store
+/build/
+/dist/
+/Recordings/
+/Releases/
+*.mp4
+*.dmg
+*.p12
+*.mobileprovision
+.env
