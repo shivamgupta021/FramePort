@@ -45,7 +45,7 @@ static NSString *const FullScreenKey = @"startFullScreen";
 - (NSPanel *)makePanel {
     NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0,0,440,195)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
-    panel.title = @"FramePort Settings";
+    panel.title = @"gta60fps Settings";
     panel.floatingPanel = YES;
     panel.collectionBehavior = NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
     NSPopUpButton *filter = [self popup:@[@"Lanczos", @"Bilinear"] selection:self.pictureOptions.filter action:@selector(changeFilter:)];
