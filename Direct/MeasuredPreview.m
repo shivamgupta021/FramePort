@@ -73,6 +73,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     // The serial capture queue owns the interpolator and reference history.
     PlaybackPicture *_picture;
     FPInterpolator *_engine;
+    FPGenerationEngine _generationEngine, _preparedEngine;
     FPFrame *_previousUSB;
     PreviewSlot *_reference;
     int _phase, _referencePhase;
@@ -92,6 +93,7 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     _layer.maximumDrawableCount=2;
     _renderQueue=dispatch_queue_create("local.frameport.presentation",
         dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_USER_INTERACTIVE,0));
+    _generationEngine=FPGenerationGuided;
     _generationEnabled=YES;
     _pictureOptions=FPDetailPictureOptions();
     _lastRead=CACurrentMediaTime();
@@ -113,11 +115,25 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
         _generationEnabled=value; _epoch++; [_pending removeAllObjects];
     }
 }
+- (FPGenerationEngine)generationEngine { @synchronized(self) { return _generationEngine; } }
+- (void)setGenerationEngine:(FPGenerationEngine)engine {
+    @synchronized(self) {
+        if (_generationEngine==engine) return;
+        _generationEngine=engine;
+        _epoch++;
+        [_pending removeAllObjects];
+    }
+}
 - (void)prepareGenerationForWidth:(size_t)width height:(size_t)height {
+    [self prepareEngine:self.generationEngine width:width height:height];
+}
+// Initial setup occurs before capture starts. Live switches occur on the serial capture queue.
+- (void)prepareEngine:(FPGenerationEngine)engine width:(size_t)width height:(size_t)height {
     NSError *error=nil;
-    _engine=[[FPInterpolator alloc] initWithWidth:width height:height engine:FPGenerationGuided error:&error];
+    _engine=[[FPInterpolator alloc] initWithWidth:width height:height engine:engine error:&error];
     [_engine usePresentationQueue:_queue];
-    if (!_engine) self.generationError=error.localizedDescription ?: @"Apple interpolation unavailable";
+    _preparedEngine=engine;
+    self.generationError=_engine ? nil : (error.localizedDescription ?: @"Interpolation unavailable");
 }
 - (void)resetHistory {
     _reference=nil; _previousUSB=nil; _phase=0; _referencePhase=0; _scores[0]=_scores[1]=0; _pairReadyOffset=0;
@@ -143,12 +159,15 @@ static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOO
     if (!pixels) return;
     NSUInteger epoch;
     BOOL enabled;
+    FPGenerationEngine selectedEngine;
     @synchronized(self) {
         _received++; _inputSize=CGSizeMake(CVPixelBufferGetWidth(pixels),CVPixelBufferGetHeight(pixels));
         if (!_visible) return;
-        epoch=_epoch; enabled=_generationEnabled;
+        epoch=_epoch; enabled=_generationEnabled; selectedEngine=_generationEngine;
     }
     if (epoch!=_captureEpoch) { [self resetHistory]; _captureEpoch=epoch; }
+    if (enabled && _preparedEngine!=selectedEngine)
+        [self prepareEngine:selectedEngine width:CVPixelBufferGetWidth(pixels) height:CVPixelBufferGetHeight(pixels)];
     if (!_picture) _picture=[[PlaybackPicture alloc] initWithSample:sample];
     FPFrame *input=[_picture frameFromSample:sample];
     pixels=input.pixels;

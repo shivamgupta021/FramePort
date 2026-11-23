@@ -38,12 +38,17 @@ static BOOL checkPixels(void) {
 
 static BOOL checkPanel(NSUserDefaults *defaults) {
     PlaybackSettings *settings = [[PlaybackSettings alloc] initWithDefaults:defaults];
-    if (settings.pictureOptions.filter != FPResizeLanczos || settings.pictureOptions.sharpness != 0.15 || !settings.startsFullScreen) { NSLog(@"Unexpected default settings"); return NO; }
+    if (settings.pictureOptions.filter != FPResizeLanczos || settings.pictureOptions.sharpness != 0.15 || !settings.startsFullScreen || settings.generationEngine != FPGenerationGuided) { NSLog(@"Unexpected default settings"); return NO; }
     NSGridView *grid = (NSGridView *)settings.window.contentView.subviews.firstObject;
     if (![grid isKindOfClass:NSGridView.class]) { NSLog(@"Missing settings grid in %@",settings.window); return NO; }
     NSPopUpButton *filter = (NSPopUpButton *)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
     NSPopUpButton *sharpness = (NSPopUpButton *)[grid cellAtColumnIndex:1 rowIndex:1].contentView;
-    NSButton *startup = (NSButton *)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+    NSPopUpButton *engine = (NSPopUpButton *)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+    NSButton *startup = (NSButton *)[grid cellAtColumnIndex:1 rowIndex:3].contentView;
+    __block FPGenerationEngine selected = FPGenerationGuided;
+    settings.engineDidChange = ^(FPGenerationEngine mode) { selected = mode; };
+    [engine selectItemAtIndex:1];
+    [engine sendAction:engine.action to:engine.target];
     __block NSUInteger notifications = 0;
     __block FPPictureOptions applied = FPDetailPictureOptions();
     settings.pictureDidChange = ^(FPPictureOptions options) { notifications++; applied = options; };
@@ -55,7 +60,7 @@ static BOOL checkPanel(NSUserDefaults *defaults) {
     [startup sendAction:startup.action to:startup.target];
     PlaybackSettings *next = [[PlaybackSettings alloc] initWithDefaults:defaults];
     NSLog(@"Callbacks %lu; last %ld, %.2f; reopened %ld, %.2f; fullscreen %d", notifications, (long)applied.filter, applied.sharpness, (long)next.pictureOptions.filter, next.pictureOptions.sharpness, next.startsFullScreen);
-    return notifications == 2 && applied.filter == FPResizeBilinear && applied.sharpness == 0.35 &&
+    return selected == FPGenerationMetalNative && next.generationEngine == selected && notifications == 2 && applied.filter == FPResizeBilinear && applied.sharpness == 0.35 &&
         next.pictureOptions.filter == FPResizeBilinear && next.pictureOptions.sharpness == 0.35 && !next.startsFullScreen;
 }
 int main(void) { @autoreleasepool {
