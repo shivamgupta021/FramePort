@@ -36,3 +36,9 @@ The capture UI lives in `Direct/Main.m`. `Direct/MeasuredPreview.m` owns the int
 Run `./scripts/check-video.sh` on supported Apple silicon to exercise the synthetic video and color checks. Launch with `open build/gta60fps.app --args --verify-preview` to save a ten-second window recording and one raw USB reference still locally. For changes to timing or scaling, verify dimensions, orientation, cadence and capture-to-presentation delay on a real card.
 
 Contributions are welcome as focused PRs. Describe the behavior, the before/after evidence, and how to revert the change. The project uses the [MIT license](LICENSE).
+
+## Disk images
+
+Download the Apple silicon DMG and its SHA-256 file from [Releases](https://github.com/shivamgupta021/gta60fps/releases). In the downloads folder, run `shasum -a 256 -c gta60fps-*.dmg.sha256` for the downloaded checksum file, open the image, and drag **gta60fps** to **Applications**. Check each release's signing status. Gatekeeper may block downloaded ad-hoc builds. Building from source is also supported.
+
+Run `./scripts/package-dmg.sh` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes both the DMG and its checksum to `dist/`. Maintainers with a Developer ID Application certificate can set `FRAMEPORT_SIGN_IDENTITY` to its name and `FRAMEPORT_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
