@@ -9,7 +9,7 @@ Build on Apple silicon with the macOS 26 SDK.
 ./scripts/check-video.sh
 ```
 
-GitHub Actions builds and signs the app and checks the frame policy on macOS. Run the settings and video suites on a physical Mac to exercise Metal and VideoToolbox.
+GitHub Actions builds and signs the app and checks the frame policy on macOS. Run the settings and video suites on a physical Mac to exercise Metal and VideoToolbox. The settings suite checks the shipping capture-to-presentation handoff. The video suite covers the renderer and the legacy stream fixture.
 
 ## Playback code
 

@@ -118,6 +118,6 @@ int main(void) { @autoreleasepool {
     [timingStream enqueue:first at:2];
     [timingStream enqueue:second at:2+1.0/60];
     if ([timingStream frameDueAt:2.100] != second) return 1;
-    puts("Capture callback passed: BGRA conversion, 59.94 Hz duplicate transport, generated timestamps, direct playback and discontinuity recovery.");
+    puts("Legacy stream capture check passed: BGRA conversion, 59.94 Hz duplicate transport, generated timestamps, direct playback and discontinuity recovery.");
     return 0;
 } }
