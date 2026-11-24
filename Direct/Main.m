@@ -219,7 +219,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSArray *titles = @[@"Capture input", @"Presented output", @"Preview latency", @"Dropped frames", @"Generated output"];
     NSArray *hints = @[@"Buffers delivered by USB Video, including repeated game images.",
         @"Drawables macOS reports as presented. Size is the game image in display pixels. P95 is the 95th percentile of the intervals between presentations.",
-        @"Mean capture timestamp to macOS presentation over the last interval. App time starts at the capture callback.",
+        @"Total includes generated pictures. The breakdown uses real pictures only: capture timestamp to input callback, callback to presentation submission, then submission to Metal-confirmed presentation.",
         @"Cumulative AVFoundation drops and preview frames skipped or reported as undisplayed.",
         @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The estimate counts noticeable input changes per second."];
     NSMutableArray *values = [NSMutableArray array], *details = [NSMutableArray array];
@@ -265,15 +265,18 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     self.details[0].stringValue = [NSString stringWithFormat:@"USB · %.0f × %.0f",s.inputSize.width,s.inputSize.height];
     NSString *pacing = isfinite(s.intervalP95MS) ? [NSString stringWithFormat:@" · %.1f ms p95",s.intervalP95MS] : @"";
     self.details[1].stringValue = [NSString stringWithFormat:@"%.0f × %.0f px%@",size.width,size.height,pacing];
-    self.details[2].stringValue = isfinite(s.deliveryToPresentMS) ? [NSString stringWithFormat:@"%.1f ms from app delivery",s.deliveryToPresentMS] : @"Awaiting presentation";
+    FPSourceTiming timing = s.realFrameMS;
+    self.details[2].stringValue = timing.count ? [NSString stringWithFormat:@"Input %.0f · app %.0f · display %.0f ms",
+        timing.input,timing.app,timing.display] : @"Awaiting a presented source frame";
+    self.details[2].toolTip = [NSString stringWithFormat:@"Real pictures: capture to callback, callback to submit, submit to presentation. All pictures averaged %.1f ms from app delivery.",s.deliveryToPresentMS];
     self.details[3].stringValue = [NSString stringWithFormat:@"%lu capture · %lu preview",s.captureDrops,s.previewDrops];
     NSString *error = self.view.preview.generationError;
     BOOL enabled = self.view.preview.generationEnabled;
     self.values[4].stringValue = !enabled ? @"Off" : error ? @"Unavailable" : [NSString stringWithFormat:@"%.1f fps",s.generatedFPS];
     self.details[4].stringValue = !enabled || error ? @"Source preview" : [NSString stringWithFormat:@"~%.0f source changes/s",s.changeFPS];
     self.values[4].toolTip = error ?: @"Motion-interpolated frames actually presented per second.";
-    if (self.verify && (self.recorder.busy || CACurrentMediaTime() < self.verificationEnd)) NSLog(@"USB %.1f · source changes %.1f · shown %.1f · generated shown %.1f · latency %.1f ms · delivery %.1f ms · p95 %.1f ms · drops %lu/%lu",
-        s.inputFPS,s.changeFPS,s.outputFPS,s.generatedFPS,s.captureToPresentMS,s.deliveryToPresentMS,s.intervalP95MS,s.captureDrops,s.previewDrops);
+    if (self.verify && (self.recorder.busy || CACurrentMediaTime() < self.verificationEnd)) NSLog(@"USB %.1f · source changes %.1f · shown %.1f · generated shown %.1f · latency %.1f ms · delivery %.1f ms · p95 %.1f ms · drops %lu/%lu · real[%zu] input/app/display %.1f/%.1f/%.1f ms",
+        s.inputFPS,s.changeFPS,s.outputFPS,s.generatedFPS,s.captureToPresentMS,s.deliveryToPresentMS,s.intervalP95MS,s.captureDrops,s.previewDrops,timing.count,timing.input,timing.app,timing.display);
 }
 - (void)toggleGeneration:(id)sender {
     BOOL enable = !self.view.preview.generationEnabled;

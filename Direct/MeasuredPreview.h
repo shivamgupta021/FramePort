@@ -1,11 +1,13 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreMedia/CoreMedia.h>
 #import "PictureOptions.h"
+#import "PresentationTiming.h"
 
 typedef struct {
     CGSize inputSize;
     double inputFPS, outputFPS, generatedFPS, changeFPS, captureToPresentMS, deliveryToPresentMS, intervalP95MS;
     NSUInteger captureDrops, previewDrops;
+    FPSourceTiming realFrameMS;
 } PreviewStatistics;
 
 @interface MeasuredPreview : NSObject
