@@ -4,13 +4,13 @@ Second Frame is a native macOS app for real-time frame interpolation and GPU ups
 
 ## Install and play
 
-You need an Apple-silicon Mac running **macOS 26 or later**, and a USB HDMI capture card with a **1080p** capture mode. The app has been tested on an M4 Pro with a UVC card listed as **USB Video** and a 2560 × 1440 monitor. Version 0.1 previews live video from HDMI sources.
+You need an Apple-silicon Mac running **macOS 26 or later** and a USB HDMI capture card with a **1080p** capture mode. The app has been tested on an M4 Pro with a UVC card listed as **USB Video** and a 2560 × 1440 monitor. Version 0.1 previews live video from HDMI sources.
 
 1. Connect your HDMI source to the card's input and the card to the Mac over USB.
 2. Download the arm64 disk image from [GitHub Releases](https://github.com/shivamgupta021/second-frame/releases), open it, and drag **Second Frame** into **Applications**.
 3. Open the app from Applications. Allow **Camera** access so macOS can deliver frames from the USB card, then select the card if asked. The preview starts in full screen by default. If the card offers 1080p but the console feed is blank, try setting the console's HDMI output to 1080p.
 
-Check the release notes for signing status. An ad-hoc prerelease can be blocked by Gatekeeper. Apple explains the first-launch options for a downloaded app you trust. You can also build a local copy from source. [Apple's opening instructions](https://support.apple.com/en-us/102445)
+Check the release notes for signing status. Gatekeeper can block a downloaded ad-hoc build. Apple explains the first-launch options for a downloaded app you trust. You can also build a local copy from source. [Apple's opening instructions](https://support.apple.com/en-us/102445)
 
 | Control | Action |
 | --- | --- |
@@ -34,7 +34,7 @@ Core Image scales each selected picture to fit the Metal drawable while preservi
 
 ## Development
 
-Build with the macOS 26 SDK using `./scripts/build.sh`, then open `build/Second Frame.app`. Start with [the contribution guide](CONTRIBUTING.md) for the checks and production playback entry points. The project uses the [MIT license](LICENSE).
+Build with the macOS 26 SDK using `./scripts/build.sh`, then run `open "build/Second Frame.app"`. Start with [the contribution guide](CONTRIBUTING.md) for the checks and production playback entry points. The project uses the [MIT license](LICENSE).
 
 ## Disk images
 
