@@ -6,12 +6,25 @@ NSError *FPError(NSString *message) {
     return [NSError errorWithDomain:@"FramePort" code:1 userInfo:@{NSLocalizedDescriptionKey:message}];
 }
 
-@implementation FPFrame
+@implementation FPFrame {
+    id<MTLCommandBuffer> _producer;
+}
 + (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time {
+    return [self frame:pixels time:time producedBy:nil];
+}
++ (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time producedBy:(id<MTLCommandBuffer>)command {
     FPFrame *frame = [self new];
     frame->_pixels = CVPixelBufferRetain(pixels);
     frame->_time = time;
+    frame->_producer = command;
     return frame;
+}
+- (BOOL)isReadyForQueue:(id<MTLCommandQueue>)queue {
+    if (!_producer) return YES;
+    MTLCommandBufferStatus status = _producer.status;
+    if (status == MTLCommandBufferStatusCompleted) return YES;
+    return queue == _producer.commandQueue && status >= MTLCommandBufferStatusCommitted &&
+        status < MTLCommandBufferStatusCompleted;
 }
 - (void)dealloc { CVPixelBufferRelease(_pixels); }
 @end
