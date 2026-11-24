@@ -78,15 +78,24 @@ static NSArray<NSString *> *colorKeys(void) {
     return frame;
 }
 - (CIImage *)imageForFrame:(FPFrame *)frame size:(CGSize)size {
+    return [self imageForFrame:frame size:size options:FPDetailPictureOptions()];
+}
+- (CIImage *)imageForFrame:(FPFrame *)frame size:(CGSize)size options:(FPPictureOptions)options {
     CIImage *image = [CIImage imageWithCVPixelBuffer:frame.pixels options:_imageOptions];
     if (CGSizeEqualToSize(image.extent.size, size)) return image;
     double sx = size.width / image.extent.size.width, sy = size.height / image.extent.size.height;
     CGRect bounds = CGRectMake(0, 0, size.width, size.height);
-    CIImage *scaled = [[image imageByClampingToExtent] imageByApplyingFilter:@"CILanczosScaleTransform"
-        withInputParameters:@{kCIInputScaleKey:@(sy), kCIInputAspectRatioKey:@(sx/sy)}];
-    if (sx > 1 && sy > 1) {
+    CIImage *clamped = [image imageByClampingToExtent];
+    CIImage *scaled;
+    if (options.filter == FPResizeBilinear) {
+        scaled = [[clamped imageBySamplingLinear] imageByApplyingTransform:CGAffineTransformMakeScale(sx,sy) highQualityDownsample:NO];
+    } else {
+        scaled = [clamped imageByApplyingFilter:@"CILanczosScaleTransform"
+            withInputParameters:@{kCIInputScaleKey:@(sy), kCIInputAspectRatioKey:@(sx/sy)}];
+    }
+    if (options.sharpness > 0 && sx > 1 && sy > 1) {
         scaled = [scaled imageByApplyingFilter:@"CISharpenLuminance"
-            withInputParameters:@{kCIInputSharpnessKey:@0.15, kCIInputRadiusKey:@0.9}];
+            withInputParameters:@{kCIInputSharpnessKey:@(options.sharpness), kCIInputRadiusKey:@0.9}];
     }
     return [scaled imageByCroppingToRect:bounds];
 }

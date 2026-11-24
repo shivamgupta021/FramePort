@@ -42,3 +42,9 @@ Contributions are welcome as focused PRs. Describe the behavior, the before/afte
 Download the Apple silicon DMG and its SHA-256 file from [Releases](https://github.com/shivamgupta021/gta60fps/releases). In the downloads folder, run `shasum -a 256 -c gta60fps-*.dmg.sha256` for the downloaded checksum file, open the image, and drag **gta60fps** to **Applications**. Check each release's signing status. Gatekeeper may block downloaded ad-hoc builds. Building from source is also supported.
 
 Run `./scripts/package-dmg.sh` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes both the DMG and its checksum to `dist/`. Maintainers with a Developer ID Application certificate can set `FRAMEPORT_SIGN_IDENTITY` to its name and `FRAMEPORT_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
+
+## Playback settings
+
+Open **gta60fps → Settings…** with **⌘,**. Choose Lanczos or bilinear enlargement, and off, mild or strong luminance sharpening. Picture settings apply to original and generated frames as you change them. Original-size playback uses the captured pixels. The defaults are Lanczos and mild sharpening. The **Start in full screen** preference applies the next time the capture starts. Preferences are stored on the Mac.
+
+Run `./scripts/check-settings.sh` to exercise the panel controls, preference restoration and all six rendered filter/sharpening combinations with a synthetic input.

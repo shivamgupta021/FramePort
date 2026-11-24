@@ -1,5 +1,6 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreMedia/CoreMedia.h>
+#import "PictureOptions.h"
 
 typedef struct {
     CGSize inputSize;
@@ -11,6 +12,7 @@ typedef struct {
 @property(nonatomic, readonly) CAMetalLayer *layer;
 @property(atomic) BOOL visible;
 @property(atomic) BOOL generationEnabled;
+@property(atomic) FPPictureOptions pictureOptions;
 @property(atomic, readonly, copy) NSString *generationError;
 - (void)prepareGenerationForWidth:(size_t)width height:(size_t)height;
 - (void)displaySample:(CMSampleBufferRef)sample captureTime:(double)captureTime deliveryTime:(double)deliveryTime;
