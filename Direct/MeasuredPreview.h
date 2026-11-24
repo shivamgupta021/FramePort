@@ -1,6 +1,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreMedia/CoreMedia.h>
 #import "PictureOptions.h"
+#import "Video.h"
 #import "PresentationTiming.h"
 
 typedef struct {
@@ -14,6 +15,7 @@ typedef struct {
 @property(nonatomic, readonly) CAMetalLayer *layer;
 @property(atomic) BOOL visible;
 @property(atomic) BOOL generationEnabled;
+@property(atomic) FPGenerationEngine generationEngine;
 @property(atomic) FPPictureOptions pictureOptions;
 @property(atomic, readonly, copy) NSString *generationError;
 - (void)prepareGenerationForWidth:(size_t)width height:(size_t)height;

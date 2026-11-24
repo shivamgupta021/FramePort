@@ -149,6 +149,8 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     if (!self.view.preview) { [self report:@"A Metal device is required for the measured preview."]; return; }
     self.view.preview.pictureOptions = self.settings.pictureOptions;
     MeasuredPreview *preview = self.view.preview;
+    preview.generationEngine = self.settings.generationEngine;
+    self.settings.engineDidChange = ^(FPGenerationEngine engine) { preview.generationEngine = engine; };
     self.settings.pictureDidChange = ^(FPPictureOptions options) { preview.pictureOptions = options; };
     [self.view.layer addSublayer:preview.layer];
     [self.window zoom:nil];
