@@ -24,7 +24,13 @@ Check the release notes for signing status. An ad-hoc prerelease can be blocked 
 
 The overlay measures capture-sample timestamp to Metal's actual presentation timestamp. Capture-callback-to-presentation time is shown separately. Physical controller response, console rendering, capture-card delay before timestamping, and panel response fall outside this measurement.
 
-In six one-second samples of moving gameplay on the tested setup, the preview presented 56–60 fps at 81–92 ms capture-to-presentation latency. Five samples had a 16.7 ms p95 presentation interval and one had 33.4 ms. Screen recording was active. Device, game and display affect the result.
+In six one-second samples of moving gameplay on the previous alpha, the preview presented 56–60 fps at 81–92 ms capture-to-presentation latency. Five samples had a 16.7 ms p95 presentation interval and one had 33.4 ms. Screen recording was active. Device, game and display affect the result.
+
+## How playback works
+
+AVFoundation receives the 1080p capture as NV12 pixel buffers. The player compares pictures to detect repeated deliveries. Two distinct pictures from a 30 fps source give the generator a slot for one midpoint. The default Detail engine uses VideoToolbox's low-latency interpolation at 720p as a motion guide and reconstructs the midpoint at capture resolution with Metal. The experimental Fast Metal option estimates motion directly from the full-size capture.
+
+Core Image scales each selected picture to fit the Metal drawable while preserving the source aspect ratio. On a 2560 × 1440 screen, a 16:9 picture can fill the 1440p drawable. Lanczos or bilinear scaling and optional luminance sharpening apply equally to captured and generated pictures.
 
 ## Development
 
@@ -32,9 +38,9 @@ Build with the macOS 26 SDK using `./scripts/build.sh`, then open `build/gta60fp
 
 ## Disk images
 
-Download the Apple silicon DMG and its SHA-256 file from [Releases](https://github.com/shivamgupta021/gta60fps/releases). In the downloads folder, run `shasum -a 256 -c gta60fps-*.dmg.sha256` for the downloaded checksum file, open the image, and drag **gta60fps** to **Applications**. Check each release's signing status. Gatekeeper may block downloaded ad-hoc builds. Building from source is also supported.
+To verify a release download, save the DMG and its matching `.sha256` file in the same folder. From that folder, run `shasum -a 256 -c gta60fps-0.1.0-alpha.2-macOS-arm64.dmg.sha256`, using the filename for your release.
 
-Run `./scripts/package-dmg.sh alpha.1` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes both the DMG and its checksum to `dist/`. Maintainers with a Developer ID Application certificate can set `FRAMEPORT_SIGN_IDENTITY` to its name and `FRAMEPORT_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
+Run `./scripts/package-dmg.sh alpha.2` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes both the DMG and its checksum to `dist/`. Maintainers with a Developer ID Application certificate can set `FRAMEPORT_SIGN_IDENTITY` to its name and `FRAMEPORT_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
 
 ## Playback settings
 
