@@ -19,7 +19,7 @@ GitHub Actions builds and signs the app and checks the frame policy on macOS. Ru
 
 Open a focused pull request with the behavior, the check you ran, and the hardware when relevant. For timing changes, use the same source sequence and display settings across trials. Record original and generated fps, gaps between presentations, and the start and end points of each latency measurement.
 
-For a visual change, follow the [before-and-after recording guide](docs/recording-demo.md) and attach the clips to the pull request. Keep footage, app bundles, and installer files out of source commits. GitHub releases carry the DMG and its checksum.
+For a visual change, follow the [before-and-after recording guide](docs/recording-demo.md) and attach the clips to the pull request. Keep footage, app bundles, and installer files out of source commits. GitHub releases carry the DMG.
 
 ## How playback works
 
@@ -47,6 +47,4 @@ In a local replay of 72 held-out gameplay pictures on an M4 Pro, mean generation
 
 ## Disk images
 
-To verify a release download, save the DMG and its matching `.sha256` file in the same folder. From that folder, run `shasum -a 256 -c SecondFrame-0.1-macOS-arm64.dmg.sha256`, using the filename for your release.
-
-Run `./scripts/package-dmg.sh` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes both the DMG and its checksum to `dist/`. Maintainers with a Developer ID Application certificate can set `APP_SIGN_IDENTITY` to its name and `APP_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
+Run `./scripts/package-dmg.sh` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes the DMG and a local checksum to `dist/`. To check a local build, run `shasum -a 256 -c SecondFrame-0.1-macOS-arm64.dmg.sha256` from `dist/`. Maintainers with a Developer ID Application certificate can set `APP_SIGN_IDENTITY` to its name and `APP_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
