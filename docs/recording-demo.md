@@ -5,7 +5,7 @@
 1. Choose a 30 fps game mode, if available. Keep the same HDMI signal, capture card, window size, display refresh rate, upscaling and sharpening settings for both clips.
 2. Load a repeatable scene with moving detail, such as a steady camera pan past railings or buildings. Keep the metrics dashboard visible in a window, or use **⌘I** in full screen.
 3. Turn frame generation off with **⌘G**. Press **⌘R** and do the camera move. The app records ten seconds of its preview window.
-4. Return to the same spot. Select **Detail** in **Settings**, turn frame generation on with **⌘G**, and record the same move again. Wait until the metrics show generated pictures before pressing **⌘R**.
+4. Return to the same spot. Turn frame generation on with **⌘G** and record the same move again. Wait until the metrics show generated pictures before pressing **⌘R**.
 5. Open **Show Recordings** from the app menu. Label the clips `30-fps-generation-off` and `30-fps-detail-on`. Note the observed playback FPS and generated FPS in the pull request.
 
 ## Upscaling

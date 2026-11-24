@@ -1,11 +1,55 @@
 #import "MeasuredPreview.h"
 #import "PlaybackPicture.h"
 #import <CoreImage/CoreImage.h>
-#import <QuartzCore/CADisplayLink.h>
-#import <AppKit/NSView.h>
 
-#import "SourceCadence.h"
-#import "Cadence.h"
+
+// A sparse patch comparison distinguishes a moving pedestrian from compression
+// noise without reading every pixel on the capture callback.
+typedef struct { double mean, changed; } SceneChange;
+static SceneChange comparePictures(CVPixelBufferRef a, CVPixelBufferRef b) {
+    if (!CVPixelBufferIsPlanar(a) || !CVPixelBufferIsPlanar(b) ||
+        CVPixelBufferGetWidth(a) != CVPixelBufferGetWidth(b) || CVPixelBufferGetHeight(a) != CVPixelBufferGetHeight(b))
+        return (SceneChange){INFINITY,1};
+    if (CVPixelBufferLockBaseAddress(a,kCVPixelBufferLock_ReadOnly)) return (SceneChange){INFINITY,1};
+    if (CVPixelBufferLockBaseAddress(b,kCVPixelBufferLock_ReadOnly)) {
+        CVPixelBufferUnlockBaseAddress(a,kCVPixelBufferLock_ReadOnly); return (SceneChange){INFINITY,1};
+    }
+    double sum = 0;
+    NSUInteger count = 0, changed = 0;
+    for (size_t plane=0; plane<2; ++plane) {
+        const uint8_t *left=CVPixelBufferGetBaseAddressOfPlane(a,plane), *right=CVPixelBufferGetBaseAddressOfPlane(b,plane);
+        size_t sa=CVPixelBufferGetBytesPerRowOfPlane(a,plane), sb=CVPixelBufferGetBytesPerRowOfPlane(b,plane);
+        size_t height=CVPixelBufferGetHeightOfPlane(a,plane), width=CVPixelBufferGetWidth(a);
+        size_t channels = plane ? 2 : 1;
+        for (size_t y=2; y+2<height; y+=12) for (size_t x=4; x+2*channels<width; x+=16) {
+            for (size_t c=0; c<channels; ++c) {
+                int delta = 0;
+                for (int j=0; j<3; ++j) for (int i=0; i<3; ++i)
+                    delta += left[(y+j)*sa+x+i*channels+c] - right[(y+j)*sb+x+i*channels+c];
+                sum += abs(delta);
+                changed += abs(delta)>9*8;
+                count++;
+            }
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(b,kCVPixelBufferLock_ReadOnly);
+    CVPixelBufferUnlockBaseAddress(a,kCVPixelBufferLock_ReadOnly);
+    return (SceneChange){sum / MAX(1,9*count),(double)changed / MAX(1,count)};
+}
+
+@interface PreviewSlot : NSObject
+@property(nonatomic,strong) FPFrame *frame;
+@property(nonatomic) double capture, delivery, releaseTime;
+@property(nonatomic) BOOL generated;
+@end
+@implementation PreviewSlot
+@end
+
+static PreviewSlot *slotFor(FPFrame *frame, double capture, double delivery, BOOL generated) {
+    PreviewSlot *slot = [PreviewSlot new];
+    slot.frame=frame; slot.capture=capture; slot.delivery=delivery; slot.generated=generated;
+    return slot;
+}
 
 @interface MeasuredPreview ()
 @property(atomic, readwrite, copy) NSString *generationError;
@@ -15,30 +59,23 @@
     CIContext *_context;
     id<MTLCommandQueue> _queue;
     CGColorSpaceRef _colorSpace;
-    dispatch_queue_t _generationQueue;
-    CADisplayLink *_displayLink;
     dispatch_queue_t _renderQueue;
-    BOOL _renderBusy;
-    BOOL _generationBusy;
-    double _retryAt;
-    FPFramePresentation *_presentation;
+    NSUInteger _timerVersion;
+    double _pairReadyOffset;
+    NSMutableArray<PreviewSlot *> *_pending;
     NSUInteger _epoch, _captureEpoch;
     BOOL _visible, _generationEnabled;
     CGSize _inputSize;
-    NSUInteger _received, _presented, _originalPresented, _generatedPresented, _timed, _captureDrops;
+    NSUInteger _received, _presented, _generatedPresented, _changes, _timed, _captureDrops, _previewDrops;
     NSUInteger _intervals[1002];
-    FPSourceTiming _sourceTiming;
     double _captureDelay, _deliveryDelay, _lastRead, _lastPresented;
-    // The capture queue owns the reference history. The generation queue owns the engine.
+    // The serial capture queue owns the interpolator and reference history.
     PlaybackPicture *_picture;
     FPInterpolator *_engine;
-    FPGenerationEngine _generationEngine, _preparedEngine;
-    FPSourceCadence *_cadence;
-    size_t _engineWidth, _engineHeight;
-    NSUInteger _workerEpoch;
-    FPFrameConverter *_captureConverter; // Owned by the generation queue.
-    size_t _converterWidth, _converterHeight;
-    BOOL _unsupportedLayout;
+    FPFrame *_previousUSB;
+    PreviewSlot *_reference;
+    int _phase, _referencePhase;
+    double _scores[2];
 }
 - (instancetype)init {
     if (!(self=[super init])) return nil;
@@ -50,256 +87,159 @@
     _layer=[CAMetalLayer layer];
     _layer.device=device; _layer.pixelFormat=MTLPixelFormatBGRA8Unorm;
     _layer.colorspace=_colorSpace; _layer.framebufferOnly=NO; _layer.displaySyncEnabled=YES; _layer.opaque=YES;
-    _presentation=[FPFramePresentation new];
-    _cadence=[FPSourceCadence new];
-    _layer.maximumDrawableCount=2;
-    _generationQueue=dispatch_queue_create("local.secondframe.generation",
+    _pending=[NSMutableArray arrayWithCapacity:3];
+    _layer.maximumDrawableCount=3;
+    _renderQueue=dispatch_queue_create("local.frameport.presentation",
         dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_USER_INTERACTIVE,0));
-    _renderQueue = dispatch_queue_create("local.secondframe.display",
-        dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_USER_INTERACTIVE,0));
-    _generationEngine=FPGenerationGuided;
     _generationEnabled=YES;
-    _pictureOptions=FPDetailPictureOptions();
     _lastRead=CACurrentMediaTime();
     return self;
 }
-- (void)dealloc {
-    [_displayLink invalidate];
-    if (_colorSpace) CGColorSpaceRelease(_colorSpace);
-}
-- (void)startPresentationInView:(NSView *)view {
-    if (_displayLink) return;
-    _displayLink = [view displayLinkWithTarget:self selector:@selector(displayLinkFired:)];
-    _displayLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
-    _displayLink.paused = !self.visible;
-    [_displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-}
-- (void)stopPresentation {
-    [_displayLink invalidate];
-    _displayLink = nil;
-    self.visible = NO;
-}
+- (void)dealloc { if (_colorSpace) CGColorSpaceRelease(_colorSpace); }
 - (BOOL)visible { @synchronized(self) { return _visible; } }
 - (void)setVisible:(BOOL)value {
     @synchronized(self) {
         if (_visible==value) return;
-        _visible=value; _epoch++; [_presentation reset]; _lastPresented=0;
+        _visible=value; _epoch++; [_pending removeAllObjects]; _lastPresented=0;
     }
-    _displayLink.paused = !value;
+
 }
 - (BOOL)generationEnabled { @synchronized(self) { return _generationEnabled; } }
 - (void)setGenerationEnabled:(BOOL)value {
     @synchronized(self) {
         if (_generationEnabled==value) return;
-        _generationEnabled=value; _epoch++; [_presentation reset];
-        if (value) self.generationError = nil;
-    }
-}
-- (FPGenerationEngine)generationEngine { @synchronized(self) { return _generationEngine; } }
-- (void)setGenerationEngine:(FPGenerationEngine)engine {
-    @synchronized(self) {
-        if (_generationEngine==engine) return;
-        _generationEngine=engine;
-        self.generationError = nil;
-        _epoch++;
-        [_presentation reset];
+        _generationEnabled=value; _epoch++; [_pending removeAllObjects];
     }
 }
 - (void)prepareGenerationForWidth:(size_t)width height:(size_t)height {
-    FPGenerationEngine selected = self.generationEngine;
-    dispatch_sync(_generationQueue, ^{
-        self.generationError = [self prepareEngine:selected width:width height:height];
-    });
+    NSError *error=nil;
+    _engine=[[FPInterpolator alloc] initWithWidth:width height:height engine:FPGenerationGuided error:&error];
+    [_engine usePresentationQueue:_queue];
+    if (!_engine) self.generationError=error.localizedDescription ?: @"Apple interpolation unavailable";
 }
-- (FPInterpolator *)newInterpolatorForEngine:(FPGenerationEngine)engine width:(size_t)width
-                                       height:(size_t)height error:(NSError **)error {
-    return [[FPInterpolator alloc] initWithWidth:width height:height engine:engine error:error];
-}
-- (NSString *)prepareEngine:(FPGenerationEngine)engine width:(size_t)width height:(size_t)height {
-    NSError *error = nil;
-    _engine = [self newInterpolatorForEngine:engine width:width height:height error:&error];
-    _preparedEngine = engine;
-    _engineWidth = width;
-    _engineHeight = height;
-    return _engine ? nil : (error.localizedDescription ?: @"Interpolation unavailable");
+- (void)resetHistory {
+    _reference=nil; _previousUSB=nil; _phase=0; _referencePhase=0; _scores[0]=_scores[1]=0; _pairReadyOffset=0;
 }
 - (void)captureDropped {
-    [_cadence reset];
+    [self resetHistory];
+    @synchronized(self) { _captureDrops++; [_pending removeAllObjects]; }
+}
+- (void)publish:(NSArray<PreviewSlot *> *)slots epoch:(NSUInteger)epoch {
     @synchronized(self) {
-        _captureDrops++;
-        [_presentation cancelMidpoint];
-    }
-}
-static BOOL needsConversion(FPFrame *frame) {
-    return CVPixelBufferGetPixelFormatType(frame.pixels) != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
-        !CVPixelBufferGetIOSurface(frame.pixels);
-}
-- (void)generateFrom:(PreviewSlot *)previous to:(PreviewSlot *)original engine:(FPGenerationEngine)selected
-               epoch:(NSUInteger)epoch version:(NSUInteger)version {
-    @autoreleasepool {
-        if (_workerEpoch != epoch) {
-            _workerEpoch = epoch;
-            _retryAt = 0;
-        }
-        size_t width = CVPixelBufferGetWidth(original.frame.pixels);
-        size_t height = CVPixelBufferGetHeight(original.frame.pixels);
-        if (_preparedEngine != selected || _engineWidth != width || _engineHeight != height) {
-            _engine = nil;
-            _retryAt = 0;
-        }
-        NSString *failure = nil;
-        FPFrame *frame = nil;
-        FPFrameKind kind = FPFrameGenerated;
-        double now = CACurrentMediaTime();
-        if (now >= _retryAt) {
-            FPFrame *before = previous.frame, *after = original.frame;
-            BOOL normalize = needsConversion(before) || needsConversion(after);
-            if (normalize) {
-                if (!_captureConverter || _converterWidth != width || _converterHeight != height) {
-                    _captureConverter = [[FPFrameConverter alloc] initWithWidth:width height:height];
-                    _converterWidth = width;
-                    _converterHeight = height;
-                }
-                before = [_captureConverter convert:before];
-                after = [_captureConverter convert:after];
-            }
-            if (!before || !after) {
-                failure = @"Could not convert the capture format for frame generation. Showing originals.";
-                _retryAt = now + .10;
-            } else if (normalize && FPCompareFrames(before.pixels, after.pixels).mean >= 24) {
-                frame = previous.frame;
-                kind = FPFrameHeld;
-            } else {
-                if (!_engine) {
-                    failure = [self prepareEngine:selected width:width height:height];
-                    if (failure) _retryAt = now + 1;
-                }
-                if (_engine) {
-                    NSError *error = nil;
-                    // Generation has its own Metal queue. Its GPU work cannot
-                    // block the original's command buffer on the display queue.
-                    frame = [_engine midpointFrom:before to:after error:&error];
-                    if (!frame) {
-                        failure = error.localizedDescription ?: @"Interpolation unavailable";
-                        _engine = nil;
-                        _retryAt = CACurrentMediaTime() + .10;
-                    }
-                }
-            }
-        }
-        @synchronized(self) {
-            _generationBusy = NO;
-            if (epoch != _epoch) return;
-            if (frame) {
-                self.generationError = nil;
-                PreviewSlot *midpoint = [PreviewSlot slotWithFrame:frame capture:(previous.capture+original.capture)*.5
-                    delivery:(previous.delivery+original.delivery)*.5 kind:kind];
-                [_presentation publishMidpoint:midpoint forVersion:version];
-            } else {
-                if (failure) self.generationError = failure;
-                [_presentation skipMidpointForVersion:version kind:FPFrameGenerated];
-            }
-        }
+        if (_epoch!=epoch || !_visible) return;
+        // Each pair supersedes any older frames that missed their display slot.
+        _previewDrops+=_pending.count;
+        [_pending removeAllObjects];
+        [_pending addObjectsFromArray:slots];
+        NSUInteger version=++_timerVersion;
+        dispatch_async(_renderQueue,^{ [self renderVersion:version]; });
+
     }
 }
 - (void)displaySample:(CMSampleBufferRef)sample captureTime:(double)captureTime deliveryTime:(double)deliveryTime {
     CVPixelBufferRef pixels=CMSampleBufferGetImageBuffer(sample);
     if (!pixels) return;
-    size_t width=CVPixelBufferGetWidth(pixels), height=CVPixelBufferGetHeight(pixels);
     NSUInteger epoch;
     BOOL enabled;
-    FPGenerationEngine selectedEngine;
     @synchronized(self) {
-        _received++;
-        _inputSize=CGSizeMake(width,height);
+        _received++; _inputSize=CGSizeMake(CVPixelBufferGetWidth(pixels),CVPixelBufferGetHeight(pixels));
         if (!_visible) return;
-        epoch=_epoch; enabled=_generationEnabled; selectedEngine=_generationEngine;
+        epoch=_epoch; enabled=_generationEnabled;
     }
-    if (epoch!=_captureEpoch) { [_cadence reset]; _captureEpoch=epoch; }
+    if (epoch!=_captureEpoch) { [self resetHistory]; _captureEpoch=epoch; }
     if (!_picture) _picture=[[PlaybackPicture alloc] initWithSample:sample];
     FPFrame *input=[_picture frameFromSample:sample];
-    PreviewSlot *real=[PreviewSlot slotWithFrame:input capture:captureTime delivery:deliveryTime kind:FPFrameOriginal];
-
-    FPSourceDecision decision = enabled ? [_cadence acceptOriginal:real] : FPSourceOriginal;
-    if (decision == FPSourceRepeat) return;
-    PreviewSlot *previous = _cadence.previousOriginal;
-    @synchronized(self) {
-        if (_epoch != epoch || !_visible) return;
-        if (decision == FPSourceUnsupported && !_unsupportedLayout) {
-            _unsupportedLayout = YES;
-            _epoch++;
-            self.generationError = @"The capture format is unsupported for frame generation. Showing originals.";
-        } else if (enabled && decision != FPSourceUnsupported && _unsupportedLayout) {
-            _unsupportedLayout = NO;
-            self.generationError = nil;
-        }
-        if (decision == FPSourceDiscontinuity) [_presentation cancelMidpoint];
-        BOOL interpolate = decision == FPSourceInterpolate && !_generationBusy;
-        BOOL hold = decision == FPSourceHold && !self.generationError;
-        NSUInteger version = [_presentation publishOriginal:real expectsMidpoint:interpolate || hold
-            now:isfinite(deliveryTime) ? deliveryTime : CACurrentMediaTime()];
-        if (hold) {
-            PreviewSlot *midpoint = [PreviewSlot slotWithFrame:previous.frame
-                capture:(previous.capture+captureTime)*.5 delivery:(previous.delivery+deliveryTime)*.5 kind:FPFrameHeld];
-            [_presentation publishMidpoint:midpoint forVersion:version];
-        }
-        if (decision != FPSourceInterpolate) return;
-        if (!interpolate || ![_presentation acceptsMidpointForVersion:version]) {
-            [_presentation skipMidpointForVersion:version kind:FPFrameGenerated];
-            return;
-        }
-        _generationBusy = YES;
-        dispatch_async(_generationQueue, ^{
-            [self generateFrom:previous to:real engine:selectedEngine epoch:epoch version:version];
-        });
+    pixels=input.pixels;
+    PreviewSlot *real=slotFor(input,captureTime,deliveryTime,NO);
+    if (!enabled || !_engine || self.generationError) {
+        [self publish:@[real] epoch:epoch]; return;
     }
+    double dt=_previousUSB ? CMTimeGetSeconds(CMTimeSubtract(input.time,_previousUSB.time)) : 0;
+    if (!(dt>0 && dt<.046)) [self resetHistory];
+    BOOL transport30=dt>.025 && dt<.046;
+    if (!_reference) {
+        _reference=real; _previousUSB=input; [self publish:@[real] epoch:epoch]; return;
+    }
+    SceneChange successive=comparePictures(_previousUSB.pixels,pixels);
+    _previousUSB=input;
+    if (!transport30) {
+        _phase ^= 1;
+        _scores[_phase]=.75*_scores[_phase]+.25*MIN(8,successive.mean);
+        // Prefer the first delivery of each real game picture. Keep the phase
+        // across still or localized movement; windowed USB input stays at 60 Hz.
+        int other=1-_referencePhase;
+        if (_scores[other]>.09+2.6*_scores[_referencePhase]) _referencePhase=other;
+        if (_phase!=_referencePhase) return;
+    }
+    PreviewSlot *previous=_reference;
+    _reference=real;
+    double distance=CMTimeGetSeconds(CMTimeSubtract(input.time,previous.frame.time));
+    if (!(distance>.022 && distance<.046)) { [self publish:@[real] epoch:epoch]; return; }
+    SceneChange pair=transport30 ? successive : comparePictures(previous.frame.pixels,pixels);
+    BOOL moving=pair.changed>.00016 || pair.mean>.35;
+    if (moving) { @synchronized(self) { _changes++; } }
+    FPFrame *mid=nil;
+    if (moving && pair.mean<24) {
+        NSError *error=nil;
+        mid=[_engine midpointFrom:previous.frame to:input error:&error];
+        if (!mid) self.generationError=error.localizedDescription ?: @"Interpolation unavailable";
+    }
+    // The midpoint represents the instant halfway between the two source PTS.
+    // During a cut the outgoing image holds until the new real picture is due.
+    PreviewSlot *between=slotFor(mid ?: previous.frame,(previous.capture+captureTime)*.5,
+                                (previous.delivery+deliveryTime)*.5,mid!=nil);
+    // Anchor both slots to the source clock, filtering variation in USB transfer
+    // and generation time. The first slot is ready now; the original follows
+    // one refresh later. A late pair never adds a full interval to the next pair.
+    double now=CACurrentMediaTime();
+    double readyOffset=now-captureTime;
+    if (isfinite(readyOffset)) {
+        if (_pairReadyOffset<=0 || fabs(_pairReadyOffset-readyOffset)>.030) _pairReadyOffset=readyOffset;
+        else _pairReadyOffset+=.12*(readyOffset-_pairReadyOffset);
+    }
+    real.releaseTime=isfinite(captureTime) ? captureTime+_pairReadyOffset+1./60 : now+1./60;
+    [self publish:@[between,real] epoch:epoch];
 }
-- (PreviewSlot *)frameForDisplayTime:(double)target interval:(double)interval now:(double)now epoch:(NSUInteger *)epoch {
-    @synchronized(self) {
-        if (!_visible) return nil;
-        if (epoch) *epoch = _epoch;
-        return [_presentation takeForDisplayTime:target interval:interval now:now];
-    }
-}
-- (void)displayLinkFired:(CADisplayLink *)link {
-    double target = link.targetTimestamp;
-    double interval = target - link.timestamp;
-    @synchronized(self) {
-        if (!_visible || _renderBusy || !_presentation.hasPendingFrame) return;
-        _renderBusy = YES;
-    }
-    dispatch_async(_renderQueue, ^{
-        @autoreleasepool {
-            id<CAMetalDrawable> drawable = [self->_layer nextDrawable];
-            if (drawable) {
-                NSUInteger epoch;
-                PreviewSlot *frame = [self frameForDisplayTime:target interval:interval
-                    now:CACurrentMediaTime() epoch:&epoch];
-                if (frame) [self draw:frame on:drawable epoch:epoch];
+- (void)renderVersion:(NSUInteger)version {
+    @autoreleasepool {
+        @synchronized(self) {
+            if (version!=_timerVersion || !_visible || !_pending.count) return;
+            double delay=_pending.firstObject.releaseTime-CACurrentMediaTime();
+            if (delay>0) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),_renderQueue,^{
+                    [self renderVersion:version];
+                });
+                return;
             }
-            @synchronized(self) { self->_renderBusy = NO; }
         }
-    });
+        id<CAMetalDrawable> drawable=[_layer nextDrawable];
+        PreviewSlot *slot;
+        NSUInteger epoch;
+        @synchronized(self) {
+            if (version!=_timerVersion || !_visible || !_pending.count) return;
+            epoch=_epoch; slot=_pending.firstObject; [_pending removeObjectAtIndex:0];
+        }
+        [self draw:slot on:drawable epoch:epoch];
+        dispatch_async(_renderQueue,^{ [self renderVersion:version]; });
+    }
 }
 - (void)draw:(PreviewSlot *)slot on:(id<CAMetalDrawable>)drawable epoch:(NSUInteger)epoch {
     id<MTLCommandBuffer> command=[_queue commandBuffer];
-    if (!drawable || !command) { @synchronized(self) { [_presentation markDropped:slot]; } return; }
+    if (!drawable || !command) { @synchronized(self) { _previewDrops++; } return; }
     CGRect output=CGRectMake(0,0,drawable.texture.width,drawable.texture.height);
-    CIImage *image=[_picture imageForFrame:slot.frame size:output.size options:self.pictureOptions];
+    CIImage *image=[_picture imageForFrame:slot.frame size:output.size];
     [_context render:image toMTLTexture:drawable.texture commandBuffer:command bounds:output colorSpace:_colorSpace];
     [command addCompletedHandler:^(id<MTLCommandBuffer> done) {
         (void)slot.frame;
         if (done.status==MTLCommandBufferStatusError) NSLog(@"Preview render failed: %@",done.error);
     }];
-    double submitted=CACurrentMediaTime();
     [drawable addPresentedHandler:^(id<MTLDrawable> frame) {
         double shown=frame.presentedTime;
         @synchronized(self) {
             if (self->_epoch!=epoch) return;
-            if (shown<=0) { [self->_presentation markDropped:slot]; return; }
-            self->_presented++; self->_originalPresented+=slot.originalSample; self->_generatedPresented+=slot.generated;
+            if (shown<=0) { self->_previewDrops++; return; }
+            self->_presented++; self->_generatedPresented+=slot.generated;
             self->_deliveryDelay+=shown-slot.delivery;
-            if (slot.originalSample) FPRecordSourceTiming(&self->_sourceTiming,slot.capture,slot.delivery,submitted,shown);
             if (isfinite(slot.capture) && slot.capture<=shown) {
                 self->_timed++; self->_captureDelay+=shown-slot.capture;
             }
@@ -314,7 +254,7 @@ static BOOL needsConversion(FPFrame *frame) {
 }
 - (PreviewStatistics)readStatistics {
     @synchronized(self) {
-        double now=CACurrentMediaTime(), dt=MAX(now-_lastRead, .000001);
+        double now=CACurrentMediaTime(), dt=now-_lastRead;
         NSUInteger total=0, cum=0;
         double p95=NAN;
         for (int i=0;i<1002;i++) total+=_intervals[i];
@@ -322,14 +262,12 @@ static BOOL needsConversion(FPFrame *frame) {
             cum+=_intervals[i];
             if (cum>=ceil(.95*total)) { p95=i*.1; break; }
         }
-        FPFrameDrops drops=_presentation.drops;
         PreviewStatistics result={ .inputSize=_inputSize, .inputFPS=_received/dt, .outputFPS=_presented/dt,
-            .originalFPS=_originalPresented/dt, .generatedFPS=_generatedPresented/dt, .intervalP95MS=p95,
+            .generatedFPS=_generatedPresented/dt, .changeFPS=_changes/dt, .intervalP95MS=p95,
             .captureToPresentMS=_timed ? _captureDelay*1000/_timed : NAN,
             .deliveryToPresentMS=_presented ? _deliveryDelay*1000/_presented : NAN,
-            .captureDrops=_captureDrops,.previewDrops=drops.originals+drops.generated+drops.held, .originalDrops=drops.originals, .generatedDrops=drops.generated, .heldDrops=drops.held, .realFrameMS=FPSourceTimingMeanMS(_sourceTiming) };
-        _lastRead=now; _received=_presented=_originalPresented=_generatedPresented=_timed=0;
-        _sourceTiming=(FPSourceTiming){0};
+            .captureDrops=_captureDrops,.previewDrops=_previewDrops };
+        _lastRead=now; _received=_presented=_generatedPresented=_changes=_timed=0;
         _captureDelay=_deliveryDelay=0; memset(_intervals,0,sizeof(_intervals));
         return result;
     }

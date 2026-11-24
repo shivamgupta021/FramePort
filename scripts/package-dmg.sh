@@ -2,11 +2,9 @@
 set -euo pipefail
 cd "${0:A:h:h}"
 
-app_name=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' Info.plist)
-executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' Info.plist)
-bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
-# The bundle uses Apple’s three-part version. Omit a zero patch from release filenames.
-version=${bundle_version%.0}
+# The tested app retains its original bundle metadata inside the 0.1 installer.
+app_name='FramePort Full Screen'
+version='0.1'
 distribution=0
 if [[ ${1:-} == --release ]]; then
   distribution=1
@@ -35,11 +33,12 @@ mkdir -p "$dist_dir"
 dist_dir=${dist_dir:A}
 stage=$(mktemp -d "$dist_dir/.second-frame.XXXXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
-image="${executable}-${version}${qualifier:+-${qualifier}}-macOS-arm64.dmg"
+image="SecondFrame-${version}${qualifier:+-${qualifier}}-macOS-arm64.dmg"
 mkdir "$stage/volume"
 APP_BUNDLE="$stage/volume/$app_name.app" ./scripts/build.sh
 ln -s /Applications "$stage/volume/Applications"
-hdiutil create -quiet -volname "$app_name" -fs HFS+ -format UDZO -srcfolder "$stage/volume" "$stage/$image"
+cp LICENSE "$stage/volume/"
+hdiutil create -quiet -volname "Second Frame" -fs HFS+ -format UDZO -srcfolder "$stage/volume" "$stage/$image"
 if [[ "$signer" != "-" ]]; then
   codesign --timestamp --sign "$signer" "$stage/$image"
 fi

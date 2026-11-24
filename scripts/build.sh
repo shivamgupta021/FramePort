@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-cp Sources/Motion.metal LICENSE "$bundle/Contents/Resources/"
+cp Sources/Motion.metal "$bundle/Contents/Resources/"
 xcrun clang -arch arm64 -O2 -Wall -Wextra -Wno-unused-parameter -fobjc-arc -mmacosx-version-min=26.0 -ISources \
   Direct/*.m Sources/Video.m Sources/MetalMotion.m Sources/Cadence.m \
   -framework Cocoa -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework ScreenCaptureKit \
