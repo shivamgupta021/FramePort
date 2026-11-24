@@ -255,7 +255,7 @@ NSError *FPError(NSString *message) {
 - (instancetype)initWithDevice:(id<MTLDevice>)device {
     if (!(self = [super init])) return nil;
     _outputSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    _context = [CIContext contextWithMTLDevice:device options:@{kCIContextCacheIntermediates:@NO, kCIContextName:@"gta60fps display"}];
+    _context = [CIContext contextWithMTLDevice:device options:@{kCIContextCacheIntermediates:@NO, kCIContextName:@"Second Frame display"}];
     return self;
 }
 - (void)render:(FPFrame *)frame into:(id<MTLTexture>)texture command:(id<MTLCommandBuffer>)command {

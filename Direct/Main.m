@@ -71,7 +71,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSLog(@"%@", message);
     dispatch_async(dispatch_get_main_queue(), ^{
         NSAlert *alert = [NSAlert new];
-        alert.messageText = @"gta60fps";
+        alert.messageText = @"Second Frame";
         alert.informativeText = message;
         [alert runModal];
     });
@@ -79,7 +79,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     self.verify = [NSProcessInfo.processInfo.arguments containsObject:@"--verify-preview"];
     self.recordingDirectory = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory
-        inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"FramePort Recordings" isDirectory:YES];
+        inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"Second Frame Recordings" isDirectory:YES];
     self.recorder = [PreviewRecording new];
     self.settings = [[PlaybackSettings alloc] initWithDefaults:NSUserDefaults.standardUserDefaults];
     NSMenu *bar = [NSMenu new], *app = [NSMenu new];
@@ -90,7 +90,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     [[app addItemWithTitle:@"Record 10 Seconds of Preview" action:@selector(record:) keyEquivalent:@"r"] setTarget:self];
     [[app addItemWithTitle:@"Show Recordings" action:@selector(showRecordings:) keyEquivalent:@""] setTarget:self];
     [app addItem:[NSMenuItem separatorItem]];
-    [app addItemWithTitle:@"Quit gta60fps" action:@selector(terminate:) keyEquivalent:@"q"];
+    [app addItemWithTitle:@"Quit Second Frame" action:@selector(terminate:) keyEquivalent:@"q"];
     NSMenu *sizeMenu = [[NSMenu alloc] initWithTitle:@"View"];
     NSMenuItem *viewItem = [bar addItemWithTitle:@"View" action:nil keyEquivalent:@""];
     viewItem.submenu = sizeMenu;
@@ -124,7 +124,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
     self.window.delegate = self;
-    self.window.title = @"gta60fps";
+    self.window.title = @"Second Frame";
     self.window.subtitle = @"Live capture";
     self.generationButton = [NSButton checkboxWithTitle:@"Frame generation · 30 → 60" target:self action:@selector(toggleGeneration:)];
     self.generationButton.state = NSControlStateValueOn;
@@ -161,7 +161,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserver:self selector:@selector(sessionError:) name:AVCaptureSessionRuntimeErrorNotification object:self.session];
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL allowed) {
-        if (!allowed) { [self report:@"Allow gta60fps Camera access in System Settings to open your capture card."]; return; }
+        if (!allowed) { [self report:@"Allow Second Frame Camera access in System Settings to open your capture card."]; return; }
         dispatch_async(dispatch_get_main_queue(), ^{ [self chooseCaptureDevice]; });
     }];
 }
@@ -296,7 +296,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSArray<AVCaptureDevice *> *devices = [AVCaptureDeviceDiscoverySession
         discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
         mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified].devices;
-    if (!devices.count) { [self report:@"Connect a USB capture card, then reopen gta60fps."]; return; }
+    if (!devices.count) { [self report:@"Connect a USB capture card, then reopen Second Frame."]; return; }
 
     AVCaptureDevice *card = devices.firstObject;
     if (devices.count > 1) {
@@ -389,7 +389,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         }
     });
 }
-- (void)cardDisconnected:(NSNotification *)note { [self report:@"The capture device disconnected. Reconnect the card and reopen gta60fps."]; }
+- (void)cardDisconnected:(NSNotification *)note { [self report:@"The capture device disconnected. Reconnect the card and reopen Second Frame."]; }
 - (void)record:(id)sender {
     if (self.recorder.busy || !self.session.running) return;
     NSError *error = nil;
