@@ -6,8 +6,8 @@
 
 typedef struct {
     CGSize inputSize;
-    double inputFPS, outputFPS, generatedFPS, changeFPS, captureToPresentMS, deliveryToPresentMS, intervalP95MS;
-    NSUInteger captureDrops, previewDrops;
+    double inputFPS, outputFPS, originalFPS, generatedFPS, changeFPS, captureToPresentMS, deliveryToPresentMS, intervalP95MS;
+    NSUInteger captureDrops, previewDrops, originalDrops, generatedDrops;
     FPSourceTiming realFrameMS;
 } PreviewStatistics;
 
