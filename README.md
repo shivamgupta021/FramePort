@@ -20,6 +20,8 @@ Check the release notes for signing status. Gatekeeper can block a downloaded ad
 | Control–⌘–F | Enter or leave native full screen. |
 | ⌘R | Record ten seconds of the player window. Second Frame → Show Recordings opens the local folder. |
 
+[Recording a before-and-after demo](docs/recording-demo.md) explains how to show frame generation and upscaling separately.
+
 ## What the latency number measures
 
 The overlay measures capture-sample timestamp to Metal's actual presentation timestamp. Capture-callback-to-presentation time is shown separately. Physical controller response, console rendering, capture-card delay before timestamping, and panel response fall outside this measurement.

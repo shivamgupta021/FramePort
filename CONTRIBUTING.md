@@ -9,7 +9,7 @@ Build on Apple silicon with the macOS 26 SDK.
 ./scripts/check-video.sh
 ```
 
-The settings and video suites exercise Metal and VideoToolbox on a physical Mac.
+GitHub Actions builds and signs the app and checks the frame policy on macOS. Run the settings and video suites on a physical Mac to exercise Metal and VideoToolbox.
 
 ## Playback code
 
@@ -19,4 +19,4 @@ The settings and video suites exercise Metal and VideoToolbox on a physical Mac.
 
 Open a focused pull request with the behavior, the check you ran, and the hardware when relevant. For timing changes, use the same source sequence and display settings across trials. Record original and generated fps, gaps between presentations, and the start and end points of each latency measurement.
 
-Keep gameplay footage, local app bundles, and installer files out of source commits. GitHub releases carry the DMG and its checksum.
+For a visual change, follow the [before-and-after recording guide](docs/recording-demo.md) and attach the clips to the pull request. Keep footage, app bundles, and installer files out of source commits. GitHub releases carry the DMG and its checksum.
