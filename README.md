@@ -2,12 +2,16 @@
 
 Real-time frame interpolation and GPU upscaling for live HDMI video on Apple silicon. Preview a console or other HDMI source on your Mac, smooth 30 fps motion toward 60 fps, and scale a 1080p feed to fit your display. Processing runs locally.
 
-[**Download Second Frame 0.1**](https://github.com/shivamgupta021/second-frame/releases)
+[**Download Second Frame 0.1**](https://github.com/shivamgupta021/second-frame/releases/tag/0.1)
+
+[Watch the camera-pan comparison](https://github.com/shivamgupta021/second-frame/releases/download/0.1/second-frame-camera-pan-comparison.mp4). The 10-second video shows raw PS5 footage alongside Second Frame with frame generation enabled.
 
 ## Requirements
 
 - Apple-silicon Mac running macOS 26 or later
 - USB HDMI capture card that macOS lists as **USB Video**, with a 1920 × 1080 capture mode
+
+**For lower latency**, choose a higher-quality capture card with low measured USB preview delay. The card adds delay before Second Frame receives each frame.
 
 ## Install
 
