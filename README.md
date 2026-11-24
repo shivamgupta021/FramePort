@@ -15,7 +15,7 @@ Real-time frame interpolation and GPU upscaling for live HDMI video on Apple sil
 2. Connect your HDMI source to the capture card and plug the card into your Mac over USB.
 3. Open **Second Frame**, allow Camera access, and choose your capture card if prompted.
 
-The 0.1 download uses an ad-hoc signature. macOS may require approval on first launch. [Apple’s first-launch instructions](https://support.apple.com/en-us/102445)
+If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway** for Second Frame. [Apple’s first-launch instructions](https://support.apple.com/en-us/102445)
 
 ## Playback
 
