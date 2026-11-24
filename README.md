@@ -2,22 +2,19 @@
 
 gta60fps is a native macOS player for HDMI capture cards. It turns 30 fps console footage into a 60 fps preview on Apple silicon and upscales 1080p video to the display's resolution. The player uses AVFoundation, VideoToolbox, Metal and Core Image. Processing runs on the Mac.
 
-## Getting started
+## Install and play
 
-The current build targets Apple silicon and macOS 26 or later. It has been tested on an M4 Pro with a UVC card named **USB Video** reporting 1920 × 1080 at 60 Hz and a 2560 × 1440 display. Other device names need capture-device selection support. The app previews video only.
+You need an Apple-silicon Mac running **macOS 26 or later**, a USB HDMI capture card with a **1080p** capture mode, and a console. The app has been tested on an M4 Pro with a UVC card listed as **USB Video** and a 2560 × 1440 monitor. The current release previews video.
 
-Connect the console to the card's HDMI input and connect the card to the Mac over USB. Build the app with the macOS 26 SDK and open it.
+1. Connect the console to the card's HDMI input and the card to the Mac over USB.
+2. Download the arm64 disk image from [GitHub Releases](https://github.com/shivamgupta021/gta60fps/releases), open it, and drag **gta60fps** into **Applications**.
+3. Open the app from Applications. Allow **Camera** access so macOS can deliver frames from the USB card, then select the card if asked. The preview starts in full screen by default. If the card offers 1080p but the console feed is blank, try setting the console's HDMI output to 1080p.
 
-```sh
-./scripts/build.sh
-open build/gta60fps.app
-```
-
-Allow Camera access when macOS asks. gta60fps looks for the external capture card, then opens in full screen, preferring a connected BenQ display or otherwise the main display. The USB input can carry duplicate pictures when a game renders at 30 fps. gta60fps detects the source cadence and interpolates a midpoint between consecutive game pictures.
+Check the release notes for signing status. An ad-hoc prerelease can be blocked by Gatekeeper. Apple explains the first-launch options for a downloaded app you trust. You can also build a local copy from source. [Apple's opening instructions](https://support.apple.com/en-us/102445)
 
 | Control | Action |
 | --- | --- |
-| ⌘G | Toggle frame generation. Switch it off for native 60 fps footage. |
+| ⌘G | Toggle frame generation. Distinct 60 fps inputs pass through automatically. |
 | ⌘1 / ⌘2 | Show original pixels / fit the window with the source aspect ratio. |
 | ⌘I | Toggle the metrics overlay in full screen. |
 | Control–⌘–F | Enter or leave native full screen. |
@@ -31,11 +28,7 @@ In six one-second samples of moving gameplay on the tested setup, the preview pr
 
 ## Development
 
-The capture UI lives in `Direct/Main.m`. `Direct/MeasuredPreview.m` owns the interpolation schedule and presentation timing. `Direct/PlaybackPicture.m` handles color, enlargement and sharpening. The Metal shaders and interpolation engine live in `Sources/`.
-
-Run `./scripts/check-video.sh` on supported Apple silicon to exercise the synthetic video and color checks. Launch with `open build/gta60fps.app --args --verify-preview` to save a ten-second window recording and one raw USB reference still locally. For changes to timing or scaling, verify dimensions, orientation, cadence and capture-to-presentation delay on a real card.
-
-Contributions are welcome as focused PRs. Describe the behavior, the before/after evidence, and how to revert the change. The project uses the [MIT license](LICENSE).
+Build with the macOS 26 SDK using `./scripts/build.sh`, then open `build/gta60fps.app`. Start with [the contribution guide](CONTRIBUTING.md) for the checks and production playback entry points. The project uses the [MIT license](LICENSE).
 
 ## Disk images
 
@@ -53,7 +46,7 @@ Run `./scripts/check-settings.sh` to exercise the panel controls, preference res
 
 **⌘I** shows three means for presented source pictures. **Input** runs from the capture timestamp to the app's callback. **App** runs from that callback to submission for presentation, including processing and scheduling. **Display** runs from submission to Metal-confirmed presentation. The three values add up to the source-picture mean. The larger headline also includes generated and held pictures, whose timestamps sit between inputs. The display interval excludes the panel's physical response.
 
-Run `cc Tests/PresentationTimingCheck.c -o build/check-timing && ./build/check-timing` after building the app to verify the stage arithmetic.
+The dashboard reports dropped original and generated frames separately. Held-frame drops are included in the total and listed in the tooltip. Run `./scripts/check-frame-policy.sh` to exercise cadence, priority, and timing arithmetic.
 
 ### Comparing interpolation modes
 
