@@ -9,7 +9,7 @@ Build on Apple silicon with the macOS 26 SDK.
 ./scripts/check-video.sh
 ```
 
-GitHub Actions builds and signs the app and checks the frame policy on macOS. Run the settings and video suites on a physical Mac to exercise Metal and VideoToolbox.
+GitHub Actions builds and signs the app and checks the frame policy on macOS. Run the settings and video suites on a physical Mac to exercise Metal and VideoToolbox. The settings suite checks the shipping capture-to-presentation handoff. The video suite covers the renderer and the legacy stream fixture.
 
 ## Playback code
 
@@ -47,4 +47,4 @@ In a local replay of 72 held-out gameplay pictures on an M4 Pro, mean generation
 
 ## Disk images
 
-Run `./scripts/package-dmg.sh` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes the DMG and a local checksum to `dist/`. To check a local build, run `shasum -a 256 -c SecondFrame-0.1-macOS-arm64.dmg.sha256` from `dist/`. Maintainers with a Developer ID Application certificate can set `APP_SIGN_IDENTITY` to its name and `APP_NOTARY_PROFILE` to a Keychain notarytool profile to sign, notarize and staple the disk image.
+Run `./scripts/package-dmg.sh` for a local ad-hoc build. The script builds a fresh arm64 app into a temporary directory, verifies the disk image and writes the DMG and a local checksum to `dist/`. To check a local build, run `shasum -a 256 -c SecondFrame-0.1-macOS-arm64.dmg.sha256` from `dist/`. For distribution, run `./scripts/package-dmg.sh --release` with `APP_SIGN_IDENTITY` set to a Developer ID Application identity and `APP_NOTARY_PROFILE` set to a Keychain notarytool profile. That mode requires signing, notarization, and a validated staple before the DMG is written to `dist/release/`.
