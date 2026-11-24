@@ -6,25 +6,12 @@ NSError *FPError(NSString *message) {
     return [NSError errorWithDomain:@"FramePort" code:1 userInfo:@{NSLocalizedDescriptionKey:message}];
 }
 
-@implementation FPFrame {
-    id<MTLCommandBuffer> _producer;
-}
+@implementation FPFrame
 + (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time {
-    return [self frame:pixels time:time producedBy:nil];
-}
-+ (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time producedBy:(id<MTLCommandBuffer>)command {
     FPFrame *frame = [self new];
     frame->_pixels = CVPixelBufferRetain(pixels);
     frame->_time = time;
-    frame->_producer = command;
     return frame;
-}
-- (BOOL)isReadyForQueue:(id<MTLCommandQueue>)queue {
-    if (!_producer) return YES;
-    MTLCommandBufferStatus status = _producer.status;
-    if (status == MTLCommandBufferStatusCompleted) return YES;
-    return queue == _producer.commandQueue && status >= MTLCommandBufferStatusCommitted &&
-        status < MTLCommandBufferStatusCompleted;
 }
 - (void)dealloc { CVPixelBufferRelease(_pixels); }
 @end
@@ -45,13 +32,13 @@ NSError *FPError(NSString *message) {
         config = [[VTLowLatencyFrameInterpolationConfiguration alloc] initWithFrameWidth:width frameHeight:height numberOfInterpolatedFrames:1];
     }
     if (!config || ![config.frameSupportedPixelFormats containsObject:@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)]) {
-        if (error) *error = FPError(@"Apple frame generation is unavailable for this size or pixel format.");
+        *error = FPError(@"Apple frame generation is unavailable for this size or pixel format.");
         return nil;
     }
     NSMutableDictionary *attrs = config.destinationPixelBufferAttributes.mutableCopy;
     attrs[(id)kCVPixelBufferMetalCompatibilityKey] = @YES;
     if (CVPixelBufferPoolCreate(NULL, NULL, (__bridge CFDictionaryRef)attrs, &_pool) != kCVReturnSuccess) {
-        if (error) *error = FPError(@"Could not allocate the interpolation buffer pool.");
+        *error = FPError(@"Could not allocate the interpolation buffer pool.");
         return nil;
     }
     VTFrameProcessor *processor = [VTFrameProcessor new];
@@ -63,7 +50,7 @@ NSError *FPError(NSString *message) {
     CMTime mid = CMTimeAdd(a.time, CMTimeMultiplyByRatio(CMTimeSubtract(b.time, a.time), 1, 2));
     CVPixelBufferRef dest = NULL;
     if (CVPixelBufferPoolCreatePixelBuffer(NULL, _pool, &dest) != kCVReturnSuccess) {
-        if (error) *error = FPError(@"Could not allocate a generated frame.");
+        *error = FPError(@"Could not allocate a generated frame.");
         return nil;
     }
     CVBufferPropagateAttachments(b.pixels, dest);
@@ -74,9 +61,9 @@ NSError *FPError(NSString *message) {
     if (previous && current && output) {
         VTLowLatencyFrameInterpolationParameters *params = [[VTLowLatencyFrameInterpolationParameters alloc] initWithSourceFrame:current previousFrame:previous interpolationPhase:@[@0.5] destinationFrames:@[output]];
         if (params && [_processor processWithParameters:params error:error]) result = [FPFrame frame:dest time:mid];
-        if (!params && error) *error = FPError(@"Apple rejected the interpolation parameters.");
+        if (!params) *error = FPError(@"Apple rejected the interpolation parameters.");
     } else {
-        if (error) *error = FPError(@"The capture device did not supply a GPU-compatible buffer.");
+        *error = FPError(@"The capture device did not supply a GPU-compatible buffer.");
     }
     CVPixelBufferRelease(dest);
     return result;
@@ -85,6 +72,12 @@ NSError *FPError(NSString *message) {
     [_processor endSession];
     if (_pool) CVPixelBufferPoolRelease(_pool);
 }
+@end
+
+// Converts the card's native pixel layout and, when necessary, resizes both references.
+@interface FPFrameConverter : NSObject
+- (instancetype)initWithWidth:(size_t)width height:(size_t)height;
+- (FPFrame *)convert:(FPFrame *)frame;
 @end
 
 @implementation FPFrameConverter {
@@ -162,14 +155,14 @@ NSError *FPError(NSString *message) {
     if (!_session) return NO;
     _reduced = YES;
     _converter = [[FPFrameConverter alloc] initWithWidth:1280 height:720];
-    if (!_converter && error) *error = FPError(@"Could not allocate the interpolation input buffers.");
+    if (!_converter) *error = FPError(@"Could not allocate the interpolation input buffers.");
     return _converter != nil;
 }
 - (FPFrame *)processFrom:(FPFrame *)a to:(FPFrame *)b error:(NSError **)error {
     if (_converter) {
         a = [_converter convert:a];
         b = [_converter convert:b];
-        if (!a || !b) { if (error) *error = FPError(@"Could not convert a capture frame for interpolation."); return nil; }
+        if (!a || !b) { *error = FPError(@"Could not convert a capture frame for interpolation."); return nil; }
     }
     return _metal ? [_metal midpointFrom:a to:b error:error] : [_session midpointFrom:a to:b error:error];
 }
@@ -177,7 +170,7 @@ NSError *FPError(NSString *message) {
     if (!_converter && (CVPixelBufferGetPixelFormatType(b.pixels) != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
                         !CVPixelBufferGetIOSurface(b.pixels) || !CVPixelBufferGetIOSurface(a.pixels))) {
         _converter = [[FPFrameConverter alloc] initWithWidth:_width height:_height];
-        if (!_converter) { if (error) *error = FPError(@"Could not prepare the capture card's pixel format."); return nil; }
+        if (!_converter) { *error = FPError(@"Could not prepare the capture card's pixel format."); return nil; }
     }
     id<MTLCommandBuffer> motion = [_reconstruction estimateDetailFrom:a to:b error:error];
     if (_reconstruction && !motion) return nil;
@@ -206,10 +199,7 @@ NSError *FPError(NSString *message) {
 - (FPFrame *)frameAtIndex:(int64_t)index {
     CVPixelBufferRef pixels = NULL;
     if (CVPixelBufferPoolCreatePixelBuffer(NULL, _pool, &pixels) != kCVReturnSuccess) return nil;
-    if (CVPixelBufferLockBaseAddress(pixels, 0) != kCVReturnSuccess) {
-        CVPixelBufferRelease(pixels);
-        return nil;
-    }
+    CVPixelBufferLockBaseAddress(pixels, 0);
     uint8_t *yPlane = CVPixelBufferGetBaseAddressOfPlane(pixels, 0);
     size_t stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0);
     // Architectural grid and moving striped tile reveal pan judder and doubling.
@@ -252,7 +242,7 @@ NSError *FPError(NSString *message) {
 - (instancetype)initWithDevice:(id<MTLDevice>)device {
     if (!(self = [super init])) return nil;
     _outputSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    _context = [CIContext contextWithMTLDevice:device options:@{kCIContextCacheIntermediates:@NO, kCIContextName:@"Second Frame display"}];
+    _context = [CIContext contextWithMTLDevice:device options:@{kCIContextCacheIntermediates:@NO, kCIContextName:@"FramePort display"}];
     return self;
 }
 - (void)render:(FPFrame *)frame into:(id<MTLTexture>)texture command:(id<MTLCommandBuffer>)command {

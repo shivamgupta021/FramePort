@@ -17,6 +17,7 @@ static NSArray<NSString *> *colorKeys(void) {
 @implementation PlaybackPicture {
     NSDictionary<NSString *, id> *_tags;
     NSDictionary *_imageOptions;
+    BOOL _verify, _lastNeededRepair;
 }
 - (instancetype)initWithSample:(CMSampleBufferRef)sample {
     if (!(self = [super init])) return nil;
@@ -42,6 +43,8 @@ static NSArray<NSString *> *colorKeys(void) {
     if (!space) space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     _tags = [tags copy];
     _imageOptions = @{ kCIImageColorSpace: CFBridgingRelease(space) };
+    _verify = [NSProcessInfo.processInfo.arguments containsObject:@"--verify-preview"];
+    if (_verify) NSLog(@"Capture color · primaries %@ · transfer %@ · matrix %@", tags[primaries], tags[transfer], tags[matrix]);
     return self;
 }
 - (FPFrame *)frameFromSample:(CMSampleBufferRef)sample {
@@ -56,6 +59,9 @@ static NSArray<NSString *> *colorKeys(void) {
         if (![value isEqual:expected] || mode != kCVAttachmentMode_ShouldPropagate) { differentKey = key; break; }
     }
     BOOL repair = differentKey != nil;
+    if (_verify && repair != _lastNeededRepair)
+        NSLog(@"Capture color · %@", repair ? [@"normalized missing, changed or non-propagating tag " stringByAppendingString:differentKey] : @"tags match session");
+    _lastNeededRepair = repair;
     if (!repair || !CVPixelBufferGetIOSurface(source)) return [FPFrame frame:source time:time];
 
     // Core Image and VideoToolbox both see the same tags. The zero-copy view
@@ -72,24 +78,15 @@ static NSArray<NSString *> *colorKeys(void) {
     return frame;
 }
 - (CIImage *)imageForFrame:(FPFrame *)frame size:(CGSize)size {
-    return [self imageForFrame:frame size:size options:FPDetailPictureOptions()];
-}
-- (CIImage *)imageForFrame:(FPFrame *)frame size:(CGSize)size options:(FPPictureOptions)options {
     CIImage *image = [CIImage imageWithCVPixelBuffer:frame.pixels options:_imageOptions];
     if (CGSizeEqualToSize(image.extent.size, size)) return image;
     double sx = size.width / image.extent.size.width, sy = size.height / image.extent.size.height;
     CGRect bounds = CGRectMake(0, 0, size.width, size.height);
-    CIImage *clamped = [image imageByClampingToExtent];
-    CIImage *scaled;
-    if (options.filter == FPResizeBilinear) {
-        scaled = [[clamped imageBySamplingLinear] imageByApplyingTransform:CGAffineTransformMakeScale(sx,sy) highQualityDownsample:NO];
-    } else {
-        scaled = [clamped imageByApplyingFilter:@"CILanczosScaleTransform"
-            withInputParameters:@{kCIInputScaleKey:@(sy), kCIInputAspectRatioKey:@(sx/sy)}];
-    }
-    if (options.sharpness > 0 && sx > 1 && sy > 1) {
+    CIImage *scaled = [[image imageByClampingToExtent] imageByApplyingFilter:@"CILanczosScaleTransform"
+        withInputParameters:@{kCIInputScaleKey:@(sy), kCIInputAspectRatioKey:@(sx/sy)}];
+    if (sx > 1 && sy > 1) {
         scaled = [scaled imageByApplyingFilter:@"CISharpenLuminance"
-            withInputParameters:@{kCIInputSharpnessKey:@(options.sharpness), kCIInputRadiusKey:@0.9}];
+            withInputParameters:@{kCIInputSharpnessKey:@0.15, kCIInputRadiusKey:@0.9}];
     }
     return [scaled imageByCroppingToRect:bounds];
 }

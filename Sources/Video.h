@@ -9,20 +9,11 @@
 @property(nonatomic, readonly) CMTime time;
 @property(nonatomic) double receivedAt, readyAt, targetTime;
 + (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time;
-+ (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time producedBy:(id<MTLCommandBuffer>)command;
-/// nil requires GPU completion. A committed producer may be read on its own queue.
-- (BOOL)isReadyForQueue:(id<MTLCommandQueue>)queue;
 @end
 
 typedef NS_ENUM(NSInteger, FPGenerationEngine) {
     FPGenerationApple, FPGenerationMetalNative, FPGenerationMetal1440, FPGenerationGuided
 };
-
-/// Converts supported CoreVideo pixel buffers to IOSurface-backed video-range NV12.
-@interface FPFrameConverter : NSObject
-- (instancetype)initWithWidth:(size_t)width height:(size_t)height;
-- (FPFrame *)convert:(FPFrame *)frame;
-@end
 
 @interface FPInterpolator : NSObject
 // Enable ordered GPU-to-GPU handoff for the live detail renderer.

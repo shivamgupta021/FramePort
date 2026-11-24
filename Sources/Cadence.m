@@ -18,59 +18,36 @@ FPImageChange FPCompareFrames(CVPixelBufferRef a, CVPixelBufferRef b) {
     FPImageChange result = unknown;
     size_t width=CVPixelBufferGetWidth(a), height=CVPixelBufferGetHeight(a);
     if (nv12) {
-        const uint8_t *left[2], *right[2];
-        size_t leftStride[2], rightStride[2], rows[2];
-        BOOL readable = width > 0 && height > 0 && !(width % 2) && !(height % 2) &&
-            CVPixelBufferGetPlaneCount(a) == 2 && CVPixelBufferGetPlaneCount(b) == 2;
-        BOOL identical = readable;
-        for (size_t plane=0; plane<2 && readable; plane++) {
-            const size_t planeWidth = plane ? width / 2 : width;
-            rows[plane] = plane ? height / 2 : height;
-            left[plane] = CVPixelBufferGetBaseAddressOfPlane(a,plane);
-            right[plane] = CVPixelBufferGetBaseAddressOfPlane(b,plane);
-            leftStride[plane] = CVPixelBufferGetBytesPerRowOfPlane(a,plane);
-            rightStride[plane] = CVPixelBufferGetBytesPerRowOfPlane(b,plane);
-            readable = left[plane] && right[plane] && leftStride[plane] >= width && rightStride[plane] >= width &&
-                CVPixelBufferGetWidthOfPlane(a,plane) == planeWidth && CVPixelBufferGetWidthOfPlane(b,plane) == planeWidth &&
-                CVPixelBufferGetHeightOfPlane(a,plane) == rows[plane] && CVPixelBufferGetHeightOfPlane(b,plane) == rows[plane] &&
-                leftStride[plane] <= SIZE_MAX / rows[plane] && rightStride[plane] <= SIZE_MAX / rows[plane];
-            for (size_t y=0; readable && identical && y<rows[plane]; y++)
-                identical = memcmp(left[plane]+y*leftStride[plane],right[plane]+y*rightStride[plane],width)==0;
-        }
-        if (readable && identical) {
-            result = (FPImageChange){0,0,YES,YES};
-        } else if (readable) {
-            uint64_t residual=0, changed=0, samples=0;
-            for (size_t plane=0; plane<2; plane++) {
-                const size_t channels=plane ? 2 : 1;
-                for (size_t y=0;y+3<rows[plane];y+=4) for (size_t x=0;x+4*channels<=width;x+=4*channels) {
-                    for(size_t channel=0;channel<channels;channel++) {
-                        int sum=0;
-                        for(size_t j=0;j<4;j++) {
-                            const uint8_t *l=left[plane]+(y+j)*leftStride[plane]+x+channel;
-                            const uint8_t *r=right[plane]+(y+j)*rightStride[plane]+x+channel;
-                            for(size_t i=0;i<4;i++) sum+=l[i*channels]-r[i*channels];
-                        }
-                        unsigned magnitude=abs(sum);
-                        residual+=magnitude; changed+=magnitude>4*16; samples++;
+        uint64_t residual=0, changed=0, samples=0;
+        BOOL identical=YES;
+        for (int plane=0;plane<2;plane++) {
+            const uint8_t *left=CVPixelBufferGetBaseAddressOfPlane(a,plane), *right=CVPixelBufferGetBaseAddressOfPlane(b,plane);
+            size_t sa=CVPixelBufferGetBytesPerRowOfPlane(a,plane), sb=CVPixelBufferGetBytesPerRowOfPlane(b,plane);
+            size_t h=CVPixelBufferGetHeightOfPlane(a,plane);
+            // Keep U and V independent, to detect color-only HUD changes.
+            int channels=plane ? 2:1;
+            for (size_t y=0;y+3<h;y+=4) for (size_t x=0;x+4*channels<=width;x+=4*channels) {
+                for(int channel=0;channel<channels;channel++) {
+                    int sum=0;
+                    for(int j=0;j<4;j++) {
+                        const uint8_t *l=left+(y+j)*sa+x+channel,*r=right+(y+j)*sb+x+channel;
+                        for(int i=0;i<4;i++) {int delta=l[i*channels]-r[i*channels];sum+=delta;identical &= delta==0;}
                     }
+                    unsigned magnitude=abs(sum);
+                    residual+=magnitude; changed+=magnitude>4*16; samples++;
                 }
             }
-            if (samples) result=(FPImageChange){(double)residual/(samples*16),(double)changed/samples,NO,YES};
         }
+        if (samples) result=(FPImageChange){(double)residual/(samples*16),(double)changed/samples,identical,YES};
     } else {
         int bytes=type==kCVPixelFormatType_32BGRA ? 4 :
             (type==kCVPixelFormatType_422YpCbCr8 || type==kCVPixelFormatType_422YpCbCr8_yuvs ? 2:0);
-        if (bytes && width <= SIZE_MAX / bytes) {
+        if(bytes) {
             const uint8_t *l=CVPixelBufferGetBaseAddress(a),*r=CVPixelBufferGetBaseAddress(b);
-            size_t sa=CVPixelBufferGetBytesPerRow(a), sb=CVPixelBufferGetBytesPerRow(b);
-            if (l && r && height && sa >= width*bytes && sb >= width*bytes &&
-                sa <= SIZE_MAX/height && sb <= SIZE_MAX/height) {
-                BOOL equal=YES;
-                for(size_t y=0;y<height && equal;y++)
-                    equal=memcmp(l+y*sa,r+y*sb,width*bytes)==0;
-                result=(FPImageChange){equal?0:1,equal?0:1,equal,NO};
-            }
+            BOOL equal=YES;
+            for(size_t y=0;y<height && equal;y++)
+                equal=memcmp(l+y*CVPixelBufferGetBytesPerRow(a),r+y*CVPixelBufferGetBytesPerRow(b),width*bytes)==0;
+            result=(FPImageChange){equal?0:1,equal?0:1,equal,NO};
         }
     }
     CVPixelBufferUnlockBaseAddress(b,kCVPixelBufferLock_ReadOnly);

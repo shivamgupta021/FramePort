@@ -1,8 +1,8 @@
 #import <Cocoa/Cocoa.h>
 #import <AVFoundation/AVFoundation.h>
+#import <CoreImage/CoreImage.h>
 #import "PreviewRecording.h"
 #import "MeasuredPreview.h"
-#import "PlaybackSettings.h"
 
 @interface CardView : NSView
 @property(nonatomic, strong) MeasuredPreview *preview;
@@ -44,29 +44,18 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     return YES;
 }
 
-static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
-    NSArray<NSNumber *> *available = output.availableVideoCVPixelFormatTypes;
-    for (NSNumber *format in @[@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
-                               @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)]) {
-        if ([available containsObject:format]) {
-            output.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey:format};
-            return;
-        }
-    }
-    output.videoSettings = @{};
-}
-
 @interface DirectPlayer : NSObject <NSApplicationDelegate, NSWindowDelegate, AVCaptureVideoDataOutputSampleBufferDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) CardView *view;
 @property(nonatomic, strong) AVCaptureSession *session;
-@property(nonatomic, strong) dispatch_queue_t sessionQueue;
 @property(nonatomic, strong) PreviewRecording *recorder;
 @property(nonatomic, strong) NSURL *recordingDirectory;
+@property(nonatomic, strong) NSURL *referenceURL;
+@property(atomic) BOOL takeReference;
+@property(nonatomic) BOOL verify;
 @property(nonatomic, strong) NSArray<NSTextField *> *values;
 @property(nonatomic, strong) NSArray<NSTextField *> *details;
 @property(nonatomic, strong) NSButton *generationButton;
-@property(nonatomic, strong) PlaybackSettings *settings;
 @property(nonatomic, strong) NSMenuItem *generationItem;
 @property(nonatomic, strong) NSStackView *metricsBar;
 @property(nonatomic, strong) NSMenuItem *metricsItem;
@@ -79,25 +68,23 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     NSLog(@"%@", message);
     dispatch_async(dispatch_get_main_queue(), ^{
         NSAlert *alert = [NSAlert new];
-        alert.messageText = @"Second Frame";
+        alert.messageText = @"FramePort";
         alert.informativeText = message;
         [alert runModal];
     });
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    self.verify = [NSProcessInfo.processInfo.arguments containsObject:@"--verify-preview"];
     self.recordingDirectory = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory
-        inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"Second Frame Recordings" isDirectory:YES];
+        inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"FramePort Recordings" isDirectory:YES];
     self.recorder = [PreviewRecording new];
-    self.settings = [[PlaybackSettings alloc] initWithDefaults:NSUserDefaults.standardUserDefaults];
     NSMenu *bar = [NSMenu new], *app = [NSMenu new];
     [bar addItem:[NSMenuItem new]];
     [bar setSubmenu:app forItem:bar.itemArray.firstObject];
-    [[app addItemWithTitle:@"Settings…" action:@selector(showWindow:) keyEquivalent:@","] setTarget:self.settings];
-    [app addItem:[NSMenuItem separatorItem]];
     [[app addItemWithTitle:@"Record 10 Seconds of Preview" action:@selector(record:) keyEquivalent:@"r"] setTarget:self];
     [[app addItemWithTitle:@"Show Recordings" action:@selector(showRecordings:) keyEquivalent:@""] setTarget:self];
     [app addItem:[NSMenuItem separatorItem]];
-    [app addItemWithTitle:@"Quit Second Frame" action:@selector(terminate:) keyEquivalent:@"q"];
+    [app addItemWithTitle:@"Quit FramePort" action:@selector(terminate:) keyEquivalent:@"q"];
     NSMenu *sizeMenu = [[NSMenu alloc] initWithTitle:@"View"];
     NSMenuItem *viewItem = [bar addItemWithTitle:@"View" action:nil keyEquivalent:@""];
     viewItem.submenu = sizeMenu;
@@ -131,8 +118,8 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
         NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
     self.window.delegate = self;
-    self.window.title = @"Second Frame";
-    self.window.subtitle = @"Live capture";
+    self.window.title = @"FramePort";
+    self.window.subtitle = @"USB Video · Detail";
     self.generationButton = [NSButton checkboxWithTitle:@"Frame generation · 30 → 60" target:self action:@selector(toggleGeneration:)];
     self.generationButton.state = NSControlStateValueOn;
     [self.generationButton sizeToFit];
@@ -154,23 +141,17 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     [self installDashboard];
     self.view.preview = [MeasuredPreview new];
     if (!self.view.preview) { [self report:@"A Metal device is required for the measured preview."]; return; }
-    self.view.preview.pictureOptions = self.settings.pictureOptions;
-    MeasuredPreview *preview = self.view.preview;
-    preview.generationEngine = self.settings.generationEngine;
-    self.settings.engineDidChange = ^(FPGenerationEngine engine) { preview.generationEngine = engine; };
-    self.settings.pictureDidChange = ^(FPPictureOptions options) { preview.pictureOptions = options; };
-    [self.view.layer addSublayer:preview.layer];
+    [self.view.layer addSublayer:self.view.preview.layer];
     [self.window zoom:nil];
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
     self.session = [AVCaptureSession new];
-    self.sessionQueue = dispatch_queue_create("local.secondframe.session", DISPATCH_QUEUE_SERIAL);
     [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(refreshStatistics:) userInfo:nil repeats:YES];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserver:self selector:@selector(sessionError:) name:AVCaptureSessionRuntimeErrorNotification object:self.session];
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL allowed) {
-        if (!allowed) { [self report:@"Allow Second Frame Camera access in System Settings to open your capture card."]; return; }
-        dispatch_async(dispatch_get_main_queue(), ^{ [self chooseCaptureDevice]; });
+        if (!allowed) { [self report:@"Allow FramePort Camera access in System Settings to open USB Video."]; return; }
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [self startCard]; });
     }];
 }
 - (void)updateMetricsLayout {
@@ -190,6 +171,8 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
 }
 - (void)windowDidEnterFullScreen:(NSNotification *)notification {
     [NSCursor setHiddenUntilMouseMoves:YES];
+    if (self.verify) NSLog(@"Native full screen on %@ · video %.0f × %.0f px", self.window.screen.localizedName,
+        self.view.preview.layer.drawableSize.width,self.view.preview.layer.drawableSize.height);
 }
 - (void)windowWillExitFullScreen:(NSNotification *)notification {
     self.fullScreenLayout = NO;
@@ -225,11 +208,11 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     bar.distribution = NSStackViewDistributionFillEqually;
     bar.spacing = 14;
     NSArray *titles = @[@"Capture input", @"Presented output", @"Preview latency", @"Dropped frames", @"Generated output"];
-    NSArray *hints = @[@"Buffers delivered by the capture device, including repeated pictures.",
+    NSArray *hints = @[@"Buffers delivered by USB Video, including repeated game images.",
         @"Drawables macOS reports as presented. Size is the game image in display pixels. P95 is the 95th percentile of the intervals between presentations.",
-        @"Total includes generated pictures. The breakdown uses real pictures only: capture timestamp to input callback, callback to presentation submission, then submission to Metal-confirmed presentation.",
+        @"Mean capture timestamp to macOS presentation over the last interval. App time starts at the capture callback.",
         @"Cumulative AVFoundation drops and preview frames skipped or reported as undisplayed.",
-        @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The count below it includes original frames confirmed as presented."];
+        @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The estimate counts noticeable input changes per second."];
     NSMutableArray *values = [NSMutableArray array], *details = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; i++) {
         NSTextField *label = [NSTextField labelWithString:titles[i]];
@@ -273,19 +256,15 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     self.details[0].stringValue = [NSString stringWithFormat:@"USB · %.0f × %.0f",s.inputSize.width,s.inputSize.height];
     NSString *pacing = isfinite(s.intervalP95MS) ? [NSString stringWithFormat:@" · %.1f ms p95",s.intervalP95MS] : @"";
     self.details[1].stringValue = [NSString stringWithFormat:@"%.0f × %.0f px%@",size.width,size.height,pacing];
-    FPSourceTiming timing = s.realFrameMS;
-    self.details[2].stringValue = timing.count ? [NSString stringWithFormat:@"Input %.0f · app %.0f · display %.0f ms",
-        timing.input,timing.app,timing.display] : @"Awaiting a presented source frame";
-    self.details[2].toolTip = [NSString stringWithFormat:@"Real pictures: capture to callback, callback to submit, submit to presentation. All pictures averaged %.1f ms from app delivery.",s.deliveryToPresentMS];
-    self.details[3].stringValue = [NSString stringWithFormat:@"%lu capture · %lu original · %lu generated",
-        s.captureDrops,s.originalDrops,s.generatedDrops];
-    self.details[3].toolTip = [NSString stringWithFormat:@"%lu held-frame drops. Generated drops include missed generation slots.",s.heldDrops];
+    self.details[2].stringValue = isfinite(s.deliveryToPresentMS) ? [NSString stringWithFormat:@"%.1f ms from app delivery",s.deliveryToPresentMS] : @"Awaiting presentation";
+    self.details[3].stringValue = [NSString stringWithFormat:@"%lu capture · %lu preview",s.captureDrops,s.previewDrops];
     NSString *error = self.view.preview.generationError;
     BOOL enabled = self.view.preview.generationEnabled;
     self.values[4].stringValue = !enabled ? @"Off" : error ? @"Unavailable" : [NSString stringWithFormat:@"%.1f fps",s.generatedFPS];
-    self.details[4].stringValue = [NSString stringWithFormat:@"%.1f original fps",s.originalFPS];
+    self.details[4].stringValue = !enabled || error ? @"Source preview" : [NSString stringWithFormat:@"~%.0f source changes/s",s.changeFPS];
     self.values[4].toolTip = error ?: @"Motion-interpolated frames actually presented per second.";
-
+    if (self.verify && self.recorder.busy) NSLog(@"USB %.1f · source changes %.1f · shown %.1f · generated shown %.1f · latency %.1f ms · delivery %.1f ms · p95 %.1f ms · drops %lu/%lu",
+        s.inputFPS,s.changeFPS,s.outputFPS,s.generatedFPS,s.captureToPresentMS,s.deliveryToPresentMS,s.intervalP95MS,s.captureDrops,s.previewDrops);
 }
 - (void)toggleGeneration:(id)sender {
     BOOL enable = !self.view.preview.generationEnabled;
@@ -299,36 +278,19 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     self.view.needsLayout = YES;
 }
 - (void)sessionError:(NSNotification *)note { [self report:[note.userInfo[AVCaptureSessionErrorKey] localizedDescription]]; }
-- (void)chooseCaptureDevice {
-    NSArray<AVCaptureDevice *> *devices = [AVCaptureDeviceDiscoverySession
-        discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
+- (void)startCard {
+    AVCaptureDevice *card = nil;
+    NSArray *devices = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
         mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified].devices;
-    if (!devices.count) { [self report:@"Connect a USB capture card, then reopen Second Frame."]; return; }
-
-    NSPopUpButton *picker = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 300, 26) pullsDown:NO];
-    for (AVCaptureDevice *device in devices)
-        [picker.menu addItem:[[NSMenuItem alloc] initWithTitle:device.localizedName action:nil keyEquivalent:@""]];
-    [picker selectItemAtIndex:0];
-    NSAlert *alert = [NSAlert new];
-    alert.messageText = @"Choose a capture device";
-    alert.informativeText = @"Select the USB capture card connected to your HDMI source.";
-    alert.accessoryView = picker;
-    [alert addButtonWithTitle:@"Open"];
-    [alert addButtonWithTitle:@"Quit"];
-    if ([alert runModal] != NSAlertFirstButtonReturn) { [NSApp terminate:nil]; return; }
-    NSInteger index = picker.indexOfSelectedItem;
-    if (index < 0 || (NSUInteger)index >= devices.count) return;
-    AVCaptureDevice *card = devices[index];
-
-    self.window.subtitle = card.localizedName;
-    dispatch_async(self.sessionQueue, ^{ [self startCard:card]; });
-}
-- (void)startCard:(AVCaptureDevice *)card {
+    for (AVCaptureDevice *candidate in devices) {
+        if ([candidate.localizedName caseInsensitiveCompare:@"USB Video"] == NSOrderedSame) { card = candidate; break; }
+    }
+    if (!card) { [self report:@"Connect the USB Video capture card, then reopen FramePort."]; return; }
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cardDisconnected:)
         name:AVCaptureDeviceWasDisconnectedNotification object:card];
     NSError *error = nil;
     AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:card error:&error];
-    if (!input || ![self.session canAddInput:input]) { [self report:error.localizedDescription ?: @"Could not open the selected capture device."]; return; }
+    if (!input || ![self.session canAddInput:input]) { [self report:error.localizedDescription ?: @"Could not open USB Video."]; return; }
     // Request the full 1080p transport, allowing the console to send repeated images at its own cadence.
     double nearestRateError = INFINITY;
     CMTime interval = kCMTimeInvalid;
@@ -347,7 +309,7 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
             format = candidate;
         }
     }
-    if (!format) { [self report:@"The selected capture device offers no 1920 × 1080 mode."]; return; }
+    if (!format) { [self report:@"USB Video has no 1920 × 1080 capture mode."]; return; }
     [self.session beginConfiguration];
     [self.session addInput:input];
     AVCaptureVideoDataOutput *tap = [AVCaptureVideoDataOutput new];
@@ -356,6 +318,8 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     }
     [self.session addOutput:tap];
     tap.alwaysDiscardsLateVideoFrames = YES;
+    if ([tap.availableVideoCVPixelFormatTypes containsObject:@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)])
+        tap.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)};
     [tap setSampleBufferDelegate:self queue:dispatch_queue_create("local.frameport.capture", DISPATCH_QUEUE_SERIAL)];
     AVCaptureConnection *connection = [tap connectionWithMediaType:AVMediaTypeVideo];
     if (connection.isVideoMirroringSupported) {
@@ -363,25 +327,16 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
         connection.videoMirrored = NO;
     }
     BOOL configured = setMode(card, format, interval, &error);
-    if (configured) configurePixelFormat(tap);
     [self.session commitConfiguration];
     if (!configured) { [self report:error.localizedDescription]; return; }
     CMVideoDimensions encoded = CMVideoFormatDescriptionGetDimensions(format.formatDescription);
     [self.view.preview prepareGenerationForWidth:encoded.width height:encoded.height];
     [self.session startRunning];
-    if (!self.session.running) { [self report:@"The selected capture device could not start."]; return; }
+    if (!self.session.running) { [self report:@"USB Video could not start."]; return; }
     // Some UVC drivers change their interval while starting a session.
     if (card.activeFormat != format || CMTimeCompare(card.activeVideoMinFrameDuration,interval) ||
         CMTimeCompare(card.activeVideoMaxFrameDuration,interval)) {
-        [self.session beginConfiguration];
-        configured = setMode(card, format, interval, &error);
-        if (configured) configurePixelFormat(tap);
-        [self.session commitConfiguration];
-        if (!configured) {
-            [self.session stopRunning];
-            [self report:error.localizedDescription];
-            return;
-        }
+        if (!setMode(card, format, interval, &error)) { [self report:error.localizedDescription]; return; }
     }
     CGSize presentation = CMVideoFormatDescriptionGetPresentationDimensions(card.activeFormat.formatDescription, YES, YES);
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -389,38 +344,37 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
         self.view.needsLayout = YES;
         [self.view layoutSubtreeIfNeeded];
         self.view.preview.visible = (self.window.occlusionState & NSWindowOcclusionStateVisible) != 0;
-        [self.view.preview startPresentationInView:self.view];
-        if (self.settings.startsFullScreen && !(self.window.styleMask & NSWindowStyleMaskFullScreen)) [self.window toggleFullScreen:nil];
         NSLog(@"%@ on %@, capture %.2f Hz, presentation %@, preview in backing pixels %@",
             card.localizedName, self.window.screen.localizedName, 1 / CMTimeGetSeconds(card.activeVideoMinFrameDuration),
             NSStringFromSize(presentation), NSStringFromRect([self.view convertRectToBacking:self.view.preview.layer.frame]));
+        if (self.verify) [self performSelector:@selector(record:) withObject:nil afterDelay:2];
     });
 }
-- (void)cardDisconnected:(NSNotification *)note {
-    dispatch_async(self.sessionQueue, ^{
-        [self.session stopRunning];
-        [self report:@"The capture device disconnected. Reconnect the card and reopen Second Frame."];
-    });
-}
+- (void)cardDisconnected:(NSNotification *)note { [self report:@"USB Video disconnected. Reconnect the card and reopen FramePort."]; }
 - (void)record:(id)sender {
     if (self.recorder.busy || !self.session.running) return;
     NSError *error = nil;
     if (![NSFileManager.defaultManager createDirectoryAtURL:self.recordingDirectory withIntermediateDirectories:YES
-        attributes:@{NSFilePosixPermissions:@0700} error:&error]) { [self report:error.localizedDescription]; return; }
-    NSString *name = [NSString stringWithFormat:@"SecondFrame-%@.mp4", NSUUID.UUID.UUIDString];
-    NSURL *movie = [self.recordingDirectory URLByAppendingPathComponent:name];
+        attributes:nil error:&error]) { [self report:error.localizedDescription]; return; }
+    NSString *name = [NSString stringWithFormat:@"Direct-%.0f", NSDate.date.timeIntervalSince1970 * 1000];
+    NSURL *base = [self.recordingDirectory URLByAppendingPathComponent:name];
+    NSURL *movie = [base URLByAppendingPathExtension:@"mp4"];
+    if (self.verify) {
+        self.referenceURL = [base URLByAppendingPathExtension:@"png"];
+        NSRect game = [self.view convertRect:self.view.preview.layer.frame toView:nil];
+        double backing = self.window.backingScaleFactor;
+        NSLog(@"Recording video rectangle (top-left pixels): %.0f,%.0f,%.0f,%.0f",
+            game.origin.x * backing, (self.window.frame.size.height - NSMaxY(game)) * backing,
+            game.size.width * backing, game.size.height * backing);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ self.takeReference = YES; });
+    }
     [self.recorder recordWindow:self.window toURL:movie completion:^(NSError *recordError) {
         if (recordError) [self report:recordError.localizedDescription];
         else NSLog(@"Recorded %@",movie.path);
     }];
 }
 - (void)showRecordings:(id)sender {
-    NSError *error = nil;
-    if (![NSFileManager.defaultManager createDirectoryAtURL:self.recordingDirectory withIntermediateDirectories:YES
-        attributes:@{NSFilePosixPermissions:@0700} error:&error]) {
-        [self report:error.localizedDescription];
-        return;
-    }
+    [NSFileManager.defaultManager createDirectoryAtURL:self.recordingDirectory withIntermediateDirectories:YES attributes:nil error:nil];
     [NSWorkspace.sharedWorkspace openURL:self.recordingDirectory];
 }
 - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sample fromConnection:(AVCaptureConnection *)connection {
@@ -428,14 +382,28 @@ static void configurePixelFormat(AVCaptureVideoDataOutput *output) {
     CMClockRef clock = self.session.synchronizationClock;
     if (clock) capture = CMTimeGetSeconds(CMSyncConvertTime(CMSampleBufferGetPresentationTimeStamp(sample), clock, CMClockGetHostTimeClock()));
     [self.view.preview displaySample:sample captureTime:capture deliveryTime:delivery];
+    if (!self.takeReference) return;
+    self.takeReference = NO;
+    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
+    if (!buffer) return;
+    NSURL *url = self.referenceURL;
+    CVPixelBufferRetain(buffer);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        CGColorSpaceRef rgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        NSError *error = nil;
+        [[CIContext contextWithOptions:nil] writePNGRepresentationOfImage:[CIImage imageWithCVPixelBuffer:buffer]
+            toURL:url format:kCIFormatRGBA8 colorSpace:rgb options:@{} error:&error];
+        CGColorSpaceRelease(rgb);
+        CVPixelBufferRelease(buffer);
+        if (error) [self report:error.localizedDescription];
+    });
 }
 - (void)captureOutput:(AVCaptureOutput *)output didDropSampleBuffer:(CMSampleBufferRef)sample fromConnection:(AVCaptureConnection *)connection {
     [self.view.preview captureDropped];
 }
 - (void)applicationWillTerminate:(NSNotification *)notification {
-    [self.view.preview stopPresentation];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    if (self.sessionQueue) dispatch_sync(self.sessionQueue, ^{ [self.session stopRunning]; });
+    if (self.session.running) [self.session stopRunning];
 }
 @end
 
