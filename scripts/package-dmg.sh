@@ -21,11 +21,11 @@ mkdir -p "$dist_dir"
 dist_dir=${dist_dir:A}
 stage=$(mktemp -d "$dist_dir/.frameport.XXXXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
-image="FramePort-${version}${qualifier:+-${qualifier}}-macOS-arm64.dmg"
+image="gta60fps-${version}${qualifier:+-${qualifier}}-macOS-arm64.dmg"
 mkdir "$stage/volume"
-FRAMEPORT_BUNDLE="$stage/volume/FramePort.app" ./scripts/build.sh
+FRAMEPORT_BUNDLE="$stage/volume/gta60fps.app" ./scripts/build.sh
 ln -s /Applications "$stage/volume/Applications"
-hdiutil create -quiet -volname FramePort -fs HFS+ -format UDZO -srcfolder "$stage/volume" "$stage/$image"
+hdiutil create -quiet -volname gta60fps -fs HFS+ -format UDZO -srcfolder "$stage/volume" "$stage/$image"
 if [[ "$signer" != "-" ]]; then
   codesign --timestamp --sign "$signer" "$stage/$image"
 fi

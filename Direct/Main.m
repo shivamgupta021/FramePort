@@ -71,7 +71,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSLog(@"%@", message);
     dispatch_async(dispatch_get_main_queue(), ^{
         NSAlert *alert = [NSAlert new];
-        alert.messageText = @"FramePort";
+        alert.messageText = @"gta60fps";
         alert.informativeText = message;
         [alert runModal];
     });
@@ -90,7 +90,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     [[app addItemWithTitle:@"Record 10 Seconds of Preview" action:@selector(record:) keyEquivalent:@"r"] setTarget:self];
     [[app addItemWithTitle:@"Show Recordings" action:@selector(showRecordings:) keyEquivalent:@""] setTarget:self];
     [app addItem:[NSMenuItem separatorItem]];
-    [app addItemWithTitle:@"Quit FramePort" action:@selector(terminate:) keyEquivalent:@"q"];
+    [app addItemWithTitle:@"Quit gta60fps" action:@selector(terminate:) keyEquivalent:@"q"];
     NSMenu *sizeMenu = [[NSMenu alloc] initWithTitle:@"View"];
     NSMenuItem *viewItem = [bar addItemWithTitle:@"View" action:nil keyEquivalent:@""];
     viewItem.submenu = sizeMenu;
@@ -124,7 +124,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
     self.window.delegate = self;
-    self.window.title = @"FramePort";
+    self.window.title = @"gta60fps";
     self.window.subtitle = @"USB Video · Low Latency";
     self.generationButton = [NSButton checkboxWithTitle:@"Frame generation · 30 → 60" target:self action:@selector(toggleGeneration:)];
     self.generationButton.state = NSControlStateValueOn;
@@ -159,7 +159,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserver:self selector:@selector(sessionError:) name:AVCaptureSessionRuntimeErrorNotification object:self.session];
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL allowed) {
-        if (!allowed) { [self report:@"Allow FramePort Camera access in System Settings to open USB Video."]; return; }
+        if (!allowed) { [self report:@"Allow gta60fps Camera access in System Settings to open USB Video."]; return; }
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [self startCard]; });
     }];
 }
@@ -294,7 +294,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     for (AVCaptureDevice *candidate in devices) {
         if ([candidate.localizedName caseInsensitiveCompare:@"USB Video"] == NSOrderedSame) { card = candidate; break; }
     }
-    if (!card) { [self report:@"Connect the USB Video capture card, then reopen FramePort."]; return; }
+    if (!card) { [self report:@"Connect the USB Video capture card, then reopen gta60fps."]; return; }
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cardDisconnected:)
         name:AVCaptureDeviceWasDisconnectedNotification object:card];
     NSError *error = nil;
@@ -363,7 +363,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         }
     });
 }
-- (void)cardDisconnected:(NSNotification *)note { [self report:@"USB Video disconnected. Reconnect the card and reopen FramePort."]; }
+- (void)cardDisconnected:(NSNotification *)note { [self report:@"USB Video disconnected. Reconnect the card and reopen gta60fps."]; }
 - (void)record:(id)sender {
     if (self.recorder.busy || !self.session.running) return;
     NSError *error = nil;
