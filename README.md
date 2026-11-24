@@ -4,16 +4,16 @@ gta60fps is a native macOS player for HDMI capture cards. It turns 30 fps consol
 
 ## Getting started
 
-The current build targets Apple silicon and macOS 26 or later. It has been tested on an M4 Pro with a UVC card named **USB Video** reporting 1920 × 1080 at 60 Hz and a 2560 × 1440 display. Other device names need capture-device selection support. The app previews video only.
+The current build targets Apple silicon and macOS 26 or later. It has been tested on an M4 Pro with a UVC card named **USB Video** reporting 1920 × 1080 at 60 Hz and a 2560 × 1440 display. The app opens one detected external device automatically and offers a picker when several are available. The selected device needs a 1080p capture mode. The app previews video only.
 
-Connect the console to the card's HDMI input and connect the card to the Mac over USB. Build the app with the macOS 26 SDK and open it.
+Connect the HDMI source to the card's HDMI input and connect the card to the Mac over USB. Build the app with the macOS 26 SDK and open it.
 
 ```sh
 ./scripts/build.sh
 open build/gta60fps.app
 ```
 
-Allow Camera access when macOS asks. gta60fps looks for the external capture card, then opens in full screen, preferring a connected BenQ display or otherwise the main display. The USB input can carry duplicate pictures when a game renders at 30 fps. gta60fps detects the source cadence and interpolates a midpoint between consecutive game pictures.
+Allow Camera access when macOS asks. gta60fps opens in full screen after capture starts, preferring a connected BenQ display or otherwise the main display. The USB input can carry duplicate pictures when a game renders at 30 fps. gta60fps detects the source cadence and interpolates a midpoint between consecutive game pictures.
 
 | Control | Action |
 | --- | --- |
