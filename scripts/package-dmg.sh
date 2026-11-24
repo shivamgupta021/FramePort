@@ -2,30 +2,33 @@
 set -euo pipefail
 cd "${0:A:h:h}"
 
-# Prereleases may append a qualifier to the app's marketing version.
-version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
+app_name=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' Info.plist)
+executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' Info.plist)
+bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
+# The bundle uses Apple’s three-part version. Omit a zero patch from release filenames.
+version=${bundle_version%.0}
 qualifier=${1:-}
 if (( $# > 1 )) || [[ -n "$qualifier" && ! "$qualifier" =~ '^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$' ]]; then
-  print -u2 'Usage: scripts/package-dmg.sh [alpha.1]'
+  print -u2 'Usage: scripts/package-dmg.sh [qualifier]'
   exit 2
 fi
-signer=${FRAMEPORT_SIGN_IDENTITY:--}
-profile=${FRAMEPORT_NOTARY_PROFILE:-}
+signer=${APP_SIGN_IDENTITY:-${FRAMEPORT_SIGN_IDENTITY:--}}
+profile=${APP_NOTARY_PROFILE:-${FRAMEPORT_NOTARY_PROFILE:-}}
 if [[ -n "$profile" && "$signer" != 'Developer ID Application:'* ]]; then
   print -u2 'Notarization requires a Developer ID Application signing identity.'
   exit 2
 fi
 
-dist_dir=${FRAMEPORT_DIST_DIR:-dist}
+dist_dir=${APP_DIST_DIR:-${FRAMEPORT_DIST_DIR:-dist}}
 mkdir -p "$dist_dir"
 dist_dir=${dist_dir:A}
-stage=$(mktemp -d "$dist_dir/.frameport.XXXXXXXX")
+stage=$(mktemp -d "$dist_dir/.second-frame.XXXXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
-image="gta60fps-${version}${qualifier:+-${qualifier}}-macOS-arm64.dmg"
+image="${executable}-${version}${qualifier:+-${qualifier}}-macOS-arm64.dmg"
 mkdir "$stage/volume"
-FRAMEPORT_BUNDLE="$stage/volume/gta60fps.app" ./scripts/build.sh
+APP_BUNDLE="$stage/volume/$app_name.app" ./scripts/build.sh
 ln -s /Applications "$stage/volume/Applications"
-hdiutil create -quiet -volname gta60fps -fs HFS+ -format UDZO -srcfolder "$stage/volume" "$stage/$image"
+hdiutil create -quiet -volname "$app_name" -fs HFS+ -format UDZO -srcfolder "$stage/volume" "$stage/$image"
 if [[ "$signer" != "-" ]]; then
   codesign --timestamp --sign "$signer" "$stage/$image"
 fi
