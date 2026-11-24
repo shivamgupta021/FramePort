@@ -17,7 +17,7 @@ Allow Camera access when macOS asks. gta60fps opens in full screen after capture
 
 | Control | Action |
 | --- | --- |
-| ⌘G | Toggle frame generation. Switch it off for native 60 fps footage. |
+| ⌘G | Toggle frame generation. Distinct 60 fps input passes through automatically. |
 | ⌘1 / ⌘2 | Show original pixels / fit the window with the source aspect ratio. |
 | ⌘I | Toggle the metrics overlay in full screen. |
 | Control–⌘–F | Enter or leave native full screen. |

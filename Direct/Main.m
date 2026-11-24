@@ -223,7 +223,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         @"Drawables macOS reports as presented. Size is the game image in display pixels. P95 is the 95th percentile of the intervals between presentations.",
         @"Total includes generated pictures. The breakdown uses real pictures only: capture timestamp to input callback, callback to presentation submission, then submission to Metal-confirmed presentation.",
         @"Cumulative AVFoundation drops and preview frames skipped or reported as undisplayed.",
-        @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The estimate counts noticeable input changes per second."];
+        @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The count below it includes original frames confirmed as presented."];
     NSMutableArray *values = [NSMutableArray array], *details = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; i++) {
         NSTextField *label = [NSTextField labelWithString:titles[i]];
