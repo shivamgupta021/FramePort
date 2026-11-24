@@ -1,0 +1,16 @@
+name: macOS checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  build-and-frame-policy:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify app signature
+        run: ./scripts/build.sh
+      - name: Check capture cadence and presentation policy
+        run: ./scripts/check-frame-policy.sh
