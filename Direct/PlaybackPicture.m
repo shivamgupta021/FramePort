@@ -17,7 +17,6 @@ static NSArray<NSString *> *colorKeys(void) {
 @implementation PlaybackPicture {
     NSDictionary<NSString *, id> *_tags;
     NSDictionary *_imageOptions;
-    BOOL _verify, _lastNeededRepair;
 }
 - (instancetype)initWithSample:(CMSampleBufferRef)sample {
     if (!(self = [super init])) return nil;
@@ -43,8 +42,6 @@ static NSArray<NSString *> *colorKeys(void) {
     if (!space) space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     _tags = [tags copy];
     _imageOptions = @{ kCIImageColorSpace: CFBridgingRelease(space) };
-    _verify = [NSProcessInfo.processInfo.arguments containsObject:@"--verify-preview"];
-    if (_verify) NSLog(@"Capture color · primaries %@ · transfer %@ · matrix %@", tags[primaries], tags[transfer], tags[matrix]);
     return self;
 }
 - (FPFrame *)frameFromSample:(CMSampleBufferRef)sample {
@@ -59,9 +56,6 @@ static NSArray<NSString *> *colorKeys(void) {
         if (![value isEqual:expected] || mode != kCVAttachmentMode_ShouldPropagate) { differentKey = key; break; }
     }
     BOOL repair = differentKey != nil;
-    if (_verify && repair != _lastNeededRepair)
-        NSLog(@"Capture color · %@", repair ? [@"normalized missing, changed or non-propagating tag " stringByAppendingString:differentKey] : @"tags match session");
-    _lastNeededRepair = repair;
     if (!repair || !CVPixelBufferGetIOSurface(source)) return [FPFrame frame:source time:time];
 
     // Core Image and VideoToolbox both see the same tags. The zero-copy view

@@ -1,10 +1,12 @@
 #import "SourceCadence.h"
 #import "Cadence.h"
 
-static BOOL isNV12(CVPixelBufferRef buffer) {
+static BOOL supportsCadence(CVPixelBufferRef buffer) {
     OSType format = CVPixelBufferGetPixelFormatType(buffer);
     return format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
-        format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+        format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
+        format == kCVPixelFormatType_32BGRA || format == kCVPixelFormatType_422YpCbCr8 ||
+        format == kCVPixelFormatType_422YpCbCr8_yuvs;
 }
 
 @implementation FPSourceCadence {
@@ -19,7 +21,7 @@ static BOOL isNV12(CVPixelBufferRef buffer) {
 }
 - (FPSourceDecision)acceptOriginal:(PreviewSlot *)original {
     FPFrame *picture = original.frame;
-    if (!isNV12(picture.pixels)) {
+    if (!supportsCadence(picture.pixels)) {
         [self reset];
         return FPSourceUnsupported;
     }
@@ -38,8 +40,7 @@ static BOOL isNV12(CVPixelBufferRef buffer) {
     }
 
     FPImageChange change = FPCompareFrames(_latestOriginal.frame.pixels, picture.pixels);
-    BOOL nearRepeat = change.hasLuma && change.mean < .24 && change.changedFraction < .0005;
-    BOOL repeated = delta < .0245 && distance < .022 && (change.identical || nearRepeat);
+    BOOL repeated = delta < .0245 && distance < .022 && change.identical;
     if (repeated) {
         _hadRepeat = YES;
         return FPSourceRepeat;

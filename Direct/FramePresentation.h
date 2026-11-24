@@ -22,9 +22,14 @@ typedef struct {
 @interface FPFramePresentation : NSObject
 @property(nonatomic, readonly) NSUInteger version;
 @property(nonatomic, readonly) FPFrameDrops drops;
+@property(nonatomic, readonly) BOOL hasPendingFrame;
 - (void)reset;
-- (void)publishOriginal:(PreviewSlot *)original midpoint:(PreviewSlot *)midpoint now:(double)now;
-- (double)delayUntilNextAt:(double)now;
-- (PreviewSlot *)takeDueAt:(double)now renderQueue:(id<MTLCommandQueue>)queue;
+- (NSUInteger)publishOriginal:(PreviewSlot *)original expectsMidpoint:(BOOL)expectsMidpoint now:(double)now;
+- (BOOL)acceptsMidpointForVersion:(NSUInteger)version;
+- (void)cancelMidpoint;
+- (void)publishMidpoint:(PreviewSlot *)midpoint forVersion:(NSUInteger)version;
+- (void)skipMidpointForVersion:(NSUInteger)version kind:(FPFrameKind)kind;
+/// One call per display update. A midpoint reserves the following update for its original.
+- (PreviewSlot *)takeForDisplayTime:(double)target interval:(double)interval now:(double)now;
 - (void)markDropped:(PreviewSlot *)slot;
 @end

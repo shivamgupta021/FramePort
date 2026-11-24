@@ -14,29 +14,68 @@ static BOOL checkPresentation(void) {
     FPFramePresentation *display = [FPFramePresentation new];
     PreviewSlot *original = picture(pattern,1,2,FPFrameOriginal);
     PreviewSlot *midpoint = picture(pattern,0,1,FPFrameGenerated);
-    [display publishOriginal:original midpoint:midpoint now:.050];
-    CHECK([display delayUntilNextAt:.050] == 0);
-    CHECK([display takeDueAt:.051 renderQueue:nil] == midpoint);
-    CHECK([display delayUntilNextAt:.050] > .016);
-    CHECK([display takeDueAt:.060 renderQueue:nil] == nil);
-    CHECK([display takeDueAt:.067 renderQueue:nil] == original);
-    CHECK(isinf([display delayUntilNextAt:.067]));
+    NSUInteger version = [display publishOriginal:original expectsMidpoint:YES now:.050];
+    CHECK([display takeForDisplayTime:.060 interval:.0167 now:.050] == nil);
+    [display publishMidpoint:midpoint forVersion:version];
+    CHECK([display takeForDisplayTime:.060 interval:.0167 now:.050] == midpoint);
+    CHECK([display takeForDisplayTime:.077 interval:.0167 now:.066] == original);
 
-    [display publishOriginal:original midpoint:midpoint now:.070];
-    CHECK([display takeDueAt:.120 renderQueue:nil] == original);
+    // A compositor target three refreshes in the future still consumes only
+    // this callback's slot. Reserve the next callback across a new capture.
+    version = [display publishOriginal:original expectsMidpoint:YES now:.200];
+    CHECK([display takeForDisplayTime:.253 interval:.0167 now:.203] == nil);
+    [display publishMidpoint:midpoint forVersion:version];
+    CHECK([display takeForDisplayTime:.270 interval:.0167 now:.220] == midpoint);
+    PreviewSlot *later = picture(pattern,4,6,FPFrameOriginal);
+    [display publishOriginal:later expectsMidpoint:NO now:.2333];
+    CHECK([display takeForDisplayTime:.287 interval:.0167 now:.237] == original);
+    CHECK([display takeForDisplayTime:.304 interval:.0167 now:.254] == later);
+
+    version = [display publishOriginal:original expectsMidpoint:YES now:.050];
+    [display publishMidpoint:midpoint forVersion:version];
+    CHECK([display takeForDisplayTime:.135 interval:.0167 now:.085] == original);
     CHECK(display.drops.generated == 1);
 
-    [display publishOriginal:original midpoint:midpoint now:.120];
+    NSUInteger stale = [display publishOriginal:original expectsMidpoint:YES now:.120];
     PreviewSlot *next = picture(pattern,2,4,FPFrameOriginal);
-    NSUInteger stale = display.version;
-    [display publishOriginal:next midpoint:midpoint now:.140];
-    CHECK(display.version != stale);
-    CHECK([display takeDueAt:.140 renderQueue:nil] == next);
-    CHECK(display.drops.originals == 1 && display.drops.generated == 3);
+    version = [display publishOriginal:next expectsMidpoint:YES now:.140];
+    CHECK(version != stale && ![display acceptsMidpointForVersion:version]);
+    [display publishMidpoint:midpoint forVersion:stale];
+    CHECK([display takeForDisplayTime:.145 interval:.0167 now:.140] == next);
+    CHECK(display.drops.originals == 1 && display.drops.generated == 2);
 
-    [display publishOriginal:next midpoint:nil now:.160];
+    [display publishOriginal:next expectsMidpoint:NO now:.160];
     [display reset];
-    CHECK([display takeDueAt:.160 renderQueue:nil] == nil);
+    CHECK([display takeForDisplayTime:.165 interval:.0167 now:.160] == nil);
+    return YES;
+}
+
+static BOOL checkDisplayPhases(void) {
+    FPPattern *pattern = [[FPPattern alloc] initWithWidth:256 height:144];
+    PreviewSlot *original = picture(pattern,1,2,FPFrameOriginal);
+    PreviewSlot *midpoint = picture(pattern,0,1,FPFrameGenerated);
+    const double refresh = 1.0/60;
+    for (int phase=1; phase<17; phase++) {
+        FPFramePresentation *display = [FPFramePresentation new];
+        double capture=0, ready=INFINITY, tick=phase/1000.0;
+        NSUInteger version=0, originals=0, generated=0;
+        while (tick < 2) {
+            if (capture <= tick && capture <= ready) {
+                version = [display publishOriginal:original expectsMidpoint:YES now:capture];
+                ready = capture + .009;
+                capture += 2 * refresh;
+            } else if (ready <= tick) {
+                [display publishMidpoint:midpoint forVersion:version];
+                ready = INFINITY;
+            } else {
+                PreviewSlot *slot = [display takeForDisplayTime:tick+.050 interval:refresh now:tick];
+                originals += slot.originalSample;
+                generated += slot.generated;
+                tick += refresh;
+            }
+        }
+        CHECK(originals >= 58 && generated >= 58 && display.drops.originals == 0);
+    }
     return YES;
 }
 
@@ -54,8 +93,19 @@ static BOOL checkCadence(void) {
     CHECK(cadence.previousOriginal == nil);
     CHECK([cadence acceptOriginal:picture(pattern,4,22,FPFrameOriginal)] == FPSourceHold);
 
+    // Two real 60 Hz pictures differ by one luma sample in the same 4x4 block.
+    PreviewSlot *flat = picture(pattern,0,0,FPFrameOriginal), *subtle = picture(pattern,0,1,FPFrameOriginal);
+    CVPixelBufferRef buffer = subtle.frame.pixels;
+    CHECK(CVPixelBufferLockBaseAddress(buffer, 0) == kCVReturnSuccess);
+    ((uint8_t *)CVPixelBufferGetBaseAddressOfPlane(buffer, 0))[1] ^= 1;
+    CVPixelBufferUnlockBaseAddress(buffer, 0);
+    [cadence reset];
+    CHECK([cadence acceptOriginal:flat] == FPSourceDiscontinuity);
+    CHECK([cadence acceptOriginal:subtle] == FPSourceOriginal);
+    [cadence reset];
+
     CVPixelBufferRef packed = NULL;
-    CHECK(!CVPixelBufferCreate(NULL,256,144,kCVPixelFormatType_32BGRA,NULL,&packed));
+    CHECK(!CVPixelBufferCreate(NULL,256,144,kCVPixelFormatType_32RGBA,NULL,&packed));
     PreviewSlot *other = [PreviewSlot slotWithFrame:[FPFrame frame:packed time:CMTimeMake(24,60)]
         capture:.400 delivery:.410 kind:FPFrameOriginal];
     CFRelease(packed);
@@ -65,7 +115,7 @@ static BOOL checkCadence(void) {
 }
 
 int main(void) { @autoreleasepool {
-    if (!checkCadence() || !checkPresentation()) return 1;
+    if (!checkCadence() || !checkPresentation() || !checkDisplayPhases()) return 1;
     puts("Source formats, cadence changes, timing resets and original-frame priority passed.");
     return 0;
 }}

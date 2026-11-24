@@ -18,6 +18,12 @@ typedef NS_ENUM(NSInteger, FPGenerationEngine) {
     FPGenerationApple, FPGenerationMetalNative, FPGenerationMetal1440, FPGenerationGuided
 };
 
+/// Converts supported CoreVideo pixel buffers to IOSurface-backed video-range NV12.
+@interface FPFrameConverter : NSObject
+- (instancetype)initWithWidth:(size_t)width height:(size_t)height;
+- (FPFrame *)convert:(FPFrame *)frame;
+@end
+
 @interface FPInterpolator : NSObject
 // Enable ordered GPU-to-GPU handoff for the live detail renderer.
 - (void)usePresentationQueue:(id<MTLCommandQueue>)queue;

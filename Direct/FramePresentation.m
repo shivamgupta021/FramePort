@@ -15,61 +15,87 @@
 @end
 
 @implementation FPFramePresentation {
-    PreviewSlot *_original, *_midpoint;
-    double _originalDue, _observedReadyOffset;
+    PreviewSlot *_original, *_midpoint, *_reservedOriginal;
+    double _midpointDeadline;
+    BOOL _expectsMidpoint;
 }
-- (void)markDropped:(PreviewSlot *)slot {
-    if (!slot) return;
-    switch (slot.kind) {
+- (BOOL)hasPendingFrame { return _original || _reservedOriginal; }
+- (void)markKindDropped:(FPFrameKind)kind {
+    switch (kind) {
         case FPFrameOriginal: _drops.originals++; break;
         case FPFrameGenerated: _drops.generated++; break;
         case FPFrameHeld: _drops.held++; break;
     }
 }
+- (void)markDropped:(PreviewSlot *)slot {
+    if (slot) [self markKindDropped:slot.kind];
+}
 - (void)reset {
-    _original = _midpoint = nil;
-    _observedReadyOffset = 0;
-    _originalDue = 0;
+    [self markDropped:_original];
+    [self markDropped:_midpoint];
+    [self markDropped:_reservedOriginal];
+    _original = _midpoint = _reservedOriginal = nil;
+    _expectsMidpoint = NO;
     _version++;
 }
-- (void)publishOriginal:(PreviewSlot *)original midpoint:(PreviewSlot *)midpoint now:(double)now {
-    // A backed-up display gets the latest original. Inserting another midpoint
-    // ahead of it would consume the display slot the previous original missed.
-    if (_original) {
+- (NSUInteger)publishOriginal:(PreviewSlot *)original expectsMidpoint:(BOOL)expectsMidpoint now:(double)now {
+    // Backpressure favors the latest original, including over its own midpoint.
+    BOOL wasBackedUp = _original != nil;
+    [self markDropped:_original];
+    [self markDropped:_midpoint];
+    _original = original;
+    _midpoint = nil;
+    _expectsMidpoint = expectsMidpoint && !wasBackedUp;
+    // Bound the time spent waiting for generation in the callback clock.
+    // The display link's presentation timestamp can be several refreshes ahead.
+    _midpointDeadline = now + 2.0 / 60.0;
+    return ++_version;
+}
+- (BOOL)acceptsMidpointForVersion:(NSUInteger)version {
+    return _expectsMidpoint && _original && version == _version;
+}
+- (void)cancelMidpoint {
+    [self markDropped:_midpoint];
+    _midpoint = nil;
+    _expectsMidpoint = NO;
+}
+- (void)publishMidpoint:(PreviewSlot *)midpoint forVersion:(NSUInteger)version {
+    if (![self acceptsMidpointForVersion:version]) {
         [self markDropped:midpoint];
-        midpoint = nil;
+        return;
     }
     [self markDropped:_midpoint];
-    [self markDropped:_original];
-    _original = original;
     _midpoint = midpoint;
-    _originalDue = now;
-    _version++;
-    if (!midpoint) return;
-
-    double readyOffset = now - original.capture;
-    if (isfinite(readyOffset)) {
-        if (_observedReadyOffset <= 0 || fabs(_observedReadyOffset - readyOffset) > .030)
-            _observedReadyOffset = readyOffset;
-        else
-            _observedReadyOffset += .12 * (readyOffset - _observedReadyOffset);
-    }
-    double anchor = isfinite(readyOffset) ? original.capture + _observedReadyOffset : now;
-    _originalDue = MAX(now, anchor + 1.0 / 60);
 }
-- (double)delayUntilNextAt:(double)now {
-    if (!_original) return INFINITY;
-    return _midpoint ? 0 : MAX(0, _originalDue - now);
-}
-- (PreviewSlot *)takeDueAt:(double)now renderQueue:(id<MTLCommandQueue>)queue {
-    if (_midpoint) {
-        PreviewSlot *slot = _midpoint;
+- (void)skipMidpointForVersion:(NSUInteger)version kind:(FPFrameKind)kind {
+    [self markKindDropped:kind];
+    if (version == _version) {
         _midpoint = nil;
-        if (now < _originalDue && [slot.frame isReadyForQueue:queue]) return slot;
-        [self markDropped:slot];
-        _originalDue = now;
+        _expectsMidpoint = NO;
     }
-    if (now < _originalDue) return nil;
+}
+- (PreviewSlot *)takeForDisplayTime:(double)target interval:(double)interval now:(double)now {
+    if (_reservedOriginal) {
+        PreviewSlot *original = _reservedOriginal;
+        _reservedOriginal = nil;
+        return original;
+    }
+    if (!_original) return nil;
+    if (_expectsMidpoint && isfinite(target) && target >= now &&
+        isfinite(interval) && interval > 0 && now < _midpointDeadline) {
+        if (_midpoint && [_midpoint.frame isReadyForQueue:nil]) {
+            PreviewSlot *slot = _midpoint;
+            _midpoint = nil;
+            _expectsMidpoint = NO;
+            _reservedOriginal = _original;
+            _original = nil;
+            return slot;
+        }
+        if (now + interval < _midpointDeadline) return nil;
+    }
+    [self markDropped:_midpoint];
+    _midpoint = nil;
+    _expectsMidpoint = NO;
     PreviewSlot *slot = _original;
     _original = nil;
     return slot;
