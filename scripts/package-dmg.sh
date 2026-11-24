@@ -7,19 +7,30 @@ executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' Info.plist)
 bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
 # The bundle uses Apple’s three-part version. Omit a zero patch from release filenames.
 version=${bundle_version%.0}
+distribution=0
+if [[ ${1:-} == --release ]]; then
+  distribution=1
+  shift
+fi
 qualifier=${1:-}
 if (( $# > 1 )) || [[ -n "$qualifier" && ! "$qualifier" =~ '^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$' ]]; then
-  print -u2 'Usage: scripts/package-dmg.sh [qualifier]'
+  print -u2 'Usage: scripts/package-dmg.sh [--release] [qualifier]'
   exit 2
 fi
 signer=${APP_SIGN_IDENTITY:-${FRAMEPORT_SIGN_IDENTITY:--}}
 profile=${APP_NOTARY_PROFILE:-${FRAMEPORT_NOTARY_PROFILE:-}}
+if (( distribution )) && [[ -z "$profile" || "$signer" != 'Developer ID Application:'* ]]; then
+  print -u2 'Release packaging requires APP_SIGN_IDENTITY (Developer ID Application) and APP_NOTARY_PROFILE.'
+  exit 2
+fi
 if [[ -n "$profile" && "$signer" != 'Developer ID Application:'* ]]; then
   print -u2 'Notarization requires a Developer ID Application signing identity.'
   exit 2
 fi
 
 dist_dir=${APP_DIST_DIR:-${FRAMEPORT_DIST_DIR:-dist}}
+# Local builds cannot replace an already notarized production artifact.
+if (( distribution )); then dist_dir="$dist_dir/release"; fi
 mkdir -p "$dist_dir"
 dist_dir=${dist_dir:A}
 stage=$(mktemp -d "$dist_dir/.second-frame.XXXXXXXX")
