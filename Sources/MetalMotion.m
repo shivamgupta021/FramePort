@@ -124,8 +124,8 @@
     }
     FPFrame *result = nil;
     if (valid) {
-        result = [FPFrame frame:dest time:guide.time];
-        [owners addObject:result];
+        result = [FPFrame frame:dest time:guide.time producedBy:cmd];
+        [owners addObject:(__bridge id)dest];
         [cmd addCompletedHandler:^(id<MTLCommandBuffer> done) {
             (void)owners.count;
             if (motion.error || done.error) self.asynchronousError = motion.error ?: done.error;
@@ -173,7 +173,8 @@
     FPFrame *result = nil;
     if (valid) {
         CMTime mid = CMTimeAdd(a.time,CMTimeMultiplyByRatio(CMTimeSubtract(b.time,a.time),1,2));
-        result = [FPFrame frame:dest time:mid];
+        result = [FPFrame frame:dest time:mid producedBy:cmd];
+        [owners addObject:(__bridge id)dest];
     }
     // CVMetalTexture views and their backing pixel buffers must live through GPU completion.
     [cmd addCompletedHandler:^(id<MTLCommandBuffer> done) { (void)owners.count; }];

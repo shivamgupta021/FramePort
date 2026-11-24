@@ -161,8 +161,8 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserver:self selector:@selector(sessionError:) name:AVCaptureSessionRuntimeErrorNotification object:self.session];
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL allowed) {
-        if (!allowed) { [self report:@"Allow gta60fps Camera access in System Settings to open USB Video."]; return; }
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [self startCard]; });
+        if (!allowed) { [self report:@"Allow gta60fps Camera access in System Settings to open your capture card."]; return; }
+        dispatch_async(dispatch_get_main_queue(), ^{ [self chooseCaptureDevice]; });
     }];
 }
 - (void)updateMetricsLayout {
@@ -219,11 +219,11 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     bar.distribution = NSStackViewDistributionFillEqually;
     bar.spacing = 14;
     NSArray *titles = @[@"Capture input", @"Presented output", @"Preview latency", @"Dropped frames", @"Generated output"];
-    NSArray *hints = @[@"Buffers delivered by USB Video, including repeated game images.",
+    NSArray *hints = @[@"Buffers delivered by the capture device, including repeated game images.",
         @"Drawables macOS reports as presented. Size is the game image in display pixels. P95 is the 95th percentile of the intervals between presentations.",
         @"Total includes generated pictures. The breakdown uses real pictures only: capture timestamp to input callback, callback to presentation submission, then submission to Metal-confirmed presentation.",
         @"Cumulative AVFoundation drops and preview frames skipped or reported as undisplayed.",
-        @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The estimate counts noticeable input changes per second."];
+        @"Motion-interpolated frames confirmed as presented per second. Included in Presented output. The count below it includes original frames confirmed as presented."];
     NSMutableArray *values = [NSMutableArray array], *details = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; i++) {
         NSTextField *label = [NSTextField labelWithString:titles[i]];
@@ -271,11 +271,14 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     self.details[2].stringValue = timing.count ? [NSString stringWithFormat:@"Input %.0f · app %.0f · display %.0f ms",
         timing.input,timing.app,timing.display] : @"Awaiting a presented source frame";
     self.details[2].toolTip = [NSString stringWithFormat:@"Real pictures: capture to callback, callback to submit, submit to presentation. All pictures averaged %.1f ms from app delivery.",s.deliveryToPresentMS];
-    self.details[3].stringValue = [NSString stringWithFormat:@"%lu capture · %lu preview",s.captureDrops,s.previewDrops];
+    self.details[3].stringValue = [NSString stringWithFormat:@"%lu capture · %lu original · %lu generated",
+        s.captureDrops,s.originalDrops,s.generatedDrops];
+    self.details[3].toolTip = [NSString stringWithFormat:@"%lu held frames also missed a display slot.",
+        s.previewDrops-s.originalDrops-s.generatedDrops];
     NSString *error = self.view.preview.generationError;
     BOOL enabled = self.view.preview.generationEnabled;
     self.values[4].stringValue = !enabled ? @"Off" : error ? @"Unavailable" : [NSString stringWithFormat:@"%.1f fps",s.generatedFPS];
-    self.details[4].stringValue = !enabled || error ? @"Source preview" : [NSString stringWithFormat:@"~%.0f source changes/s",s.changeFPS];
+    self.details[4].stringValue = !enabled || error ? @"Source preview" : [NSString stringWithFormat:@"%.1f original fps",s.originalFPS];
     self.values[4].toolTip = error ?: @"Motion-interpolated frames actually presented per second.";
     if (self.verify && (self.recorder.busy || CACurrentMediaTime() < self.verificationEnd)) NSLog(@"USB %.1f · source changes %.1f · shown %.1f · generated shown %.1f · latency %.1f ms · delivery %.1f ms · p95 %.1f ms · drops %lu/%lu · real[%zu] input/app/display %.1f/%.1f/%.1f ms",
         s.inputFPS,s.changeFPS,s.outputFPS,s.generatedFPS,s.captureToPresentMS,s.deliveryToPresentMS,s.intervalP95MS,s.captureDrops,s.previewDrops,timing.count,timing.input,timing.app,timing.display);
@@ -292,19 +295,40 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     self.view.needsLayout = YES;
 }
 - (void)sessionError:(NSNotification *)note { [self report:[note.userInfo[AVCaptureSessionErrorKey] localizedDescription]]; }
-- (void)startCard {
-    AVCaptureDevice *card = nil;
-    NSArray *devices = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
+- (void)chooseCaptureDevice {
+    NSArray<AVCaptureDevice *> *devices = [AVCaptureDeviceDiscoverySession
+        discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
         mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified].devices;
-    for (AVCaptureDevice *candidate in devices) {
-        if ([candidate.localizedName caseInsensitiveCompare:@"USB Video"] == NSOrderedSame) { card = candidate; break; }
+    if (!devices.count) { [self report:@"Connect a USB capture card, then reopen gta60fps."]; return; }
+
+    AVCaptureDevice *card = devices.firstObject;
+    if (devices.count > 1) {
+        NSPopUpButton *picker = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 300, 26) pullsDown:NO];
+        for (NSUInteger i = 0; i < devices.count; i++) {
+            NSString *name = devices[i].localizedName;
+            [picker.menu addItem:[[NSMenuItem alloc] initWithTitle:name action:nil keyEquivalent:@""]];
+            if ([name isEqualToString:@"USB Video"]) [picker selectItemAtIndex:i];
+        }
+        if (picker.indexOfSelectedItem < 0) [picker selectItemAtIndex:0];
+        NSAlert *alert = [NSAlert new];
+        alert.messageText = @"Choose a capture device";
+        alert.informativeText = @"Select the USB capture card connected to your console.";
+        alert.accessoryView = picker;
+        [alert addButtonWithTitle:@"Open"];
+        [alert addButtonWithTitle:@"Quit"];
+        if ([alert runModal] != NSAlertFirstButtonReturn) { [NSApp terminate:nil]; return; }
+        card = devices[picker.indexOfSelectedItem];
     }
-    if (!card) { [self report:@"Connect the USB Video capture card, then reopen gta60fps."]; return; }
+
+    self.window.subtitle = card.localizedName;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [self startCard:card]; });
+}
+- (void)startCard:(AVCaptureDevice *)card {
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cardDisconnected:)
         name:AVCaptureDeviceWasDisconnectedNotification object:card];
     NSError *error = nil;
     AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:card error:&error];
-    if (!input || ![self.session canAddInput:input]) { [self report:error.localizedDescription ?: @"Could not open USB Video."]; return; }
+    if (!input || ![self.session canAddInput:input]) { [self report:error.localizedDescription ?: @"Could not open the selected capture device."]; return; }
     // Request the full 1080p transport, allowing the console to send repeated images at its own cadence.
     double nearestRateError = INFINITY;
     CMTime interval = kCMTimeInvalid;
@@ -323,7 +347,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
             format = candidate;
         }
     }
-    if (!format) { [self report:@"USB Video has no 1920 × 1080 capture mode."]; return; }
+    if (!format) { [self report:@"The selected capture device offers no 1920 × 1080 mode."]; return; }
     [self.session beginConfiguration];
     [self.session addInput:input];
     AVCaptureVideoDataOutput *tap = [AVCaptureVideoDataOutput new];
@@ -346,7 +370,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
     CMVideoDimensions encoded = CMVideoFormatDescriptionGetDimensions(format.formatDescription);
     [self.view.preview prepareGenerationForWidth:encoded.width height:encoded.height];
     [self.session startRunning];
-    if (!self.session.running) { [self report:@"USB Video could not start."]; return; }
+    if (!self.session.running) { [self report:@"The selected capture device could not start."]; return; }
     // Some UVC drivers change their interval while starting a session.
     if (card.activeFormat != format || CMTimeCompare(card.activeVideoMinFrameDuration,interval) ||
         CMTimeCompare(card.activeVideoMaxFrameDuration,interval)) {
@@ -368,7 +392,7 @@ static BOOL setMode(AVCaptureDevice *device, AVCaptureDeviceFormat *format, CMTi
         }
     });
 }
-- (void)cardDisconnected:(NSNotification *)note { [self report:@"USB Video disconnected. Reconnect the card and reopen gta60fps."]; }
+- (void)cardDisconnected:(NSNotification *)note { [self report:@"The capture device disconnected. Reconnect the card and reopen gta60fps."]; }
 - (void)record:(id)sender {
     if (self.recorder.busy || !self.session.running) return;
     NSError *error = nil;

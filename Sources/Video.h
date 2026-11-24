@@ -9,6 +9,9 @@
 @property(nonatomic, readonly) CMTime time;
 @property(nonatomic) double receivedAt, readyAt, targetTime;
 + (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time;
++ (instancetype)frame:(CVPixelBufferRef)pixels time:(CMTime)time producedBy:(id<MTLCommandBuffer>)command;
+/// nil requires GPU completion. A committed producer may be read on its own queue.
+- (BOOL)isReadyForQueue:(id<MTLCommandQueue>)queue;
 @end
 
 typedef NS_ENUM(NSInteger, FPGenerationEngine) {
