@@ -105,7 +105,7 @@ static BOOL checkCadence(void) {
     [cadence reset];
 
     CVPixelBufferRef packed = NULL;
-    CHECK(!CVPixelBufferCreate(NULL,256,144,kCVPixelFormatType_32RGBA,NULL,&packed));
+    CHECK(!CVPixelBufferCreate(NULL,256,144,kCVPixelFormatType_OneComponent8,NULL,&packed));
     PreviewSlot *other = [PreviewSlot slotWithFrame:[FPFrame frame:packed time:CMTimeMake(24,60)]
         capture:.400 delivery:.410 kind:FPFrameOriginal];
     CFRelease(packed);
