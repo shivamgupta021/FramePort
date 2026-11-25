@@ -8,6 +8,8 @@ Real-time frame interpolation and GPU upscaling for live HDMI video on Apple sil
 
 Raw PS5 footage and Second Frame with frame generation enabled, shown side by side during a camera pan.
 
+https://github.com/user-attachments/assets/bbcf25fd-a869-4d33-801f-04e1da352700
+
 [Download the full-quality MP4](https://github.com/shivamgupta021/second-frame/releases/download/0.1/second-frame-camera-pan-comparison.mp4)
 
 ## Requirements
